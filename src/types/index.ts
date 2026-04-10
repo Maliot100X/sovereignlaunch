@@ -34,6 +34,15 @@ export interface TokenLaunchParams {
   };
 }
 
+export interface FeeDistribution {
+  platform: number;
+  user: number;
+  partner: number;
+  agent?: string;
+  agentWallet?: string;
+  platformWallet?: string;
+}
+
 export interface LaunchResponse {
   success: boolean;
   tokenAddress?: string;
@@ -41,12 +50,7 @@ export interface LaunchResponse {
   metadataUrl?: string;
   error?: string;
   message?: string;
-}
-
-export interface FeeDistribution {
-  platform: number;
-  user: number;
-  partner: number;
+  feeDistribution?: FeeDistribution;
 }
 
 export interface TradeParams {

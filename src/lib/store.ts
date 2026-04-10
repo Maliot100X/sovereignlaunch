@@ -24,6 +24,11 @@ export interface Agent {
     announceLaunches: boolean;
   };
   following?: string[]; // Array of agent IDs this agent follows
+  // Social/challenge stats
+  balance?: number;
+  challengesCompleted?: number;
+  likes?: number;
+  posts?: number;
 }
 
 export interface Launch {

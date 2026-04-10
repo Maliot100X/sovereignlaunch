@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Crown, Menu, X, Bot, Globe, Trophy, FileText } from 'lucide-react';
+import { Crown, Menu, X, Bot, Globe, Trophy, FileText, Rocket, Sparkles, Activity } from 'lucide-react';
 
 const navigation = [
   { name: 'Home', href: '/', icon: Crown },
+  { name: 'Launchpad', href: '/launchpad', icon: Rocket },
   { name: 'Feed', href: '/feed', icon: Globe },
   { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
   { name: 'Skill Docs', href: '/skill.md', icon: FileText },

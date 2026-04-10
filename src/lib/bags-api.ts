@@ -105,8 +105,12 @@ class BAGSAPI {
     }
   }
 
-  async launchToken(params: TokenLaunchParams): Promise<LaunchResponse> {
+  async launchToken(params: TokenLaunchParams & { agentFeeShare?: number; platformWallet?: string }): Promise<LaunchResponse> {
     try {
+      const PLATFORM_WALLET = params.platformWallet || 'Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx';
+      const AGENT_FEE_SHARE = params.agentFeeShare || 6500; // 65% in bps
+      const PLATFORM_FEE_SHARE = 3500; // 35% in bps
+
       const response = await this.client.post('/tokens/launch', {
         name: params.name,
         symbol: params.symbol,
@@ -117,14 +121,29 @@ class BAGSAPI {
         initialLiquidity: params.initialLiquidity || '1',
         launchType: params.launchType,
         creatorWallet: params.creatorWallet,
-        socialLinks: params.socialLinks
+        socialLinks: params.socialLinks,
+        // Fee distribution: 65% agent, 35% platform
+        feeDistribution: {
+          creator: AGENT_FEE_SHARE,        // 65% to agent
+          platform: PLATFORM_FEE_SHARE,   // 35% to platform
+          creatorWallet: params.creatorWallet, // Agent wallet gets 65%
+          platformWallet: PLATFORM_WALLET    // Platform wallet gets 35%
+        }
       });
 
       return {
         success: true,
         tokenAddress: response.data.tokenAddress,
         transactionSignature: response.data.signature,
-        message: 'Token launched successfully!'
+        metadataUrl: response.data.metadataUrl,
+        message: 'Token launched successfully!',
+        feeDistribution: {
+          user: 65,
+          platform: 35,
+          partner: 0,
+          agentWallet: params.creatorWallet,
+          platformWallet: PLATFORM_WALLET
+        }
       };
     } catch (error) {
       return {

@@ -3,6 +3,81 @@ import { bagsApi } from '@/lib/bags-api';
 import { telegramBot } from '@/lib/telegram-server';
 import { randomUUID } from 'crypto';
 import { agentStore, launchStore, verifyApiKey, type Launch } from '@/lib/store';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+
+const PLATFORM_WALLET = 'Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx';
+const LAUNCH_FEE_SOL = 0.5; // 0.5 SOL platform fee to launch
+
+// Verify payment was made
+async function verifyLaunchPayment(agentWallet: string, txHash?: string): Promise<{ verified: boolean; txHash?: string; error?: string }> {
+  try {
+    const connection = new Connection(
+      process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
+    );
+
+    if (txHash) {
+      // Verify specific transaction
+      const tx = await connection.getTransaction(txHash, { commitment: 'confirmed' });
+      if (!tx || !tx.meta) {
+        return { verified: false, error: 'Transaction not found' };
+      }
+
+      const accountKeys = tx.transaction.message.getAccountKeys();
+      const keysArray = Array.isArray(accountKeys) ? accountKeys : (accountKeys as any).staticAccountKeys || [];
+      const platformWalletIndex = keysArray.findIndex(
+        (key: any) => key.toString() === PLATFORM_WALLET
+      );
+
+      if (platformWalletIndex >= 0) {
+        const balanceChange = (tx.meta.postBalances[platformWalletIndex] - tx.meta.preBalances[platformWalletIndex]) / LAMPORTS_PER_SOL;
+        if (balanceChange >= LAUNCH_FEE_SOL * 0.99) {
+          return { verified: true, txHash };
+        }
+      }
+      return { verified: false, error: 'Payment amount insufficient' };
+    }
+
+    // Look for recent payments to platform wallet
+    const signatures = await connection.getSignaturesForAddress(
+      new PublicKey(PLATFORM_WALLET),
+      { limit: 50 }
+    );
+
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+
+    for (const sig of signatures) {
+      const tx = await connection.getTransaction(sig.signature, { commitment: 'confirmed' });
+      if (!tx || !tx.meta || !tx.blockTime) continue;
+
+      const txTime = tx.blockTime * 1000;
+      if (txTime < fiveMinutesAgo) continue;
+
+      const accountKeys = tx.transaction.message.getAccountKeys();
+      const keysArray = Array.isArray(accountKeys) ? accountKeys : (accountKeys as any).staticAccountKeys || [];
+      const senderIndex = keysArray.findIndex(
+        (key: any) => key.toString() === agentWallet
+      );
+
+      if (senderIndex >= 0) {
+        const platformWalletIndex = keysArray.findIndex(
+          (key: any) => key.toString() === PLATFORM_WALLET
+        );
+
+        if (platformWalletIndex >= 0) {
+          const balanceChange = (tx.meta.postBalances[platformWalletIndex] - tx.meta.preBalances[platformWalletIndex]) / LAMPORTS_PER_SOL;
+          if (balanceChange >= LAUNCH_FEE_SOL * 0.99) {
+            return { verified: true, txHash: sig.signature };
+          }
+        }
+      }
+    }
+
+    return { verified: false, error: `Please send ${LAUNCH_FEE_SOL} SOL to ${PLATFORM_WALLET} first` };
+  } catch (err) {
+    console.error('Payment verification error:', err);
+    return { verified: false, error: 'Failed to verify payment' };
+  }
+}
 
 // Agent token launch endpoint
 export async function POST(request: NextRequest) {
@@ -35,7 +110,8 @@ export async function POST(request: NextRequest) {
       launchType = 'gasless',
       initialBuyLamports = 0,
       social,
-      announce = true
+      announce = true,
+      txHash // Optional: specific payment transaction
     } = body;
 
     // Validation
@@ -53,7 +129,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Launch token via BAGS API
+    // Verify payment first
+    const paymentCheck = await verifyLaunchPayment(agent.wallet, txHash);
+    if (!paymentCheck.verified) {
+      return NextResponse.json({
+        error: 'Launch fee payment required',
+        details: paymentCheck.error,
+        launchFee: {
+          amount: LAUNCH_FEE_SOL,
+          platformWallet: PLATFORM_WALLET,
+          message: `Send ${LAUNCH_FEE_SOL} SOL to ${PLATFORM_WALLET} before launching`
+        }
+      }, { status: 402 }); // 402 Payment Required
+    }
+
+    // Launch token via BAGS API with 65/35 fee split
     const launchResult = await bagsApi.launchToken({
       name,
       symbol: symbol.toUpperCase(),
@@ -64,7 +154,9 @@ export async function POST(request: NextRequest) {
       totalSupply: '1000000000',
       initialLiquidity: (initialBuyLamports / 1e9).toString(),
       creatorWallet: agent.wallet,
-      socialLinks: social
+      socialLinks: social,
+      agentFeeShare: 6500, // 65% to agent
+      platformWallet: PLATFORM_WALLET
     });
 
     if (!launchResult.success) {
@@ -98,7 +190,6 @@ export async function POST(request: NextRequest) {
     // Announce on social platforms if enabled
     if (announce && agent.settings.announceLaunches) {
       try {
-        // Telegram notification
         await telegramBot.notifyLaunch(
           launchResult.tokenAddress!,
           symbol.toUpperCase(),
@@ -108,12 +199,8 @@ export async function POST(request: NextRequest) {
 
         launch.announced = true;
         launchStore.set(launchId, launch);
-
-        // TODO: Twitter announcement
-        // TODO: On-chain social protocols
       } catch (error) {
         console.error('Error sending announcements:', error);
-        // Don't fail the launch if announcements fail
       }
     }
 
@@ -126,7 +213,14 @@ export async function POST(request: NextRequest) {
       transactionSignature: launchResult.transactionSignature,
       metadataUrl: launchResult.metadataUrl,
       message: 'Token launched successfully',
-      announced: launch.announced
+      announced: launch.announced,
+      feeDistribution: {
+        agent: '65%',
+        platform: '35%',
+        agentWallet: agent.wallet,
+        platformWallet: PLATFORM_WALLET
+      },
+      paymentTx: paymentCheck.txHash
     });
 
   } catch (error) {
@@ -158,8 +252,6 @@ export async function GET(request: NextRequest) {
     }
 
     const agent = auth.agent;
-
-    // Get agent's launches
     const agentLaunches = launchStore.getByAgentId(agent.id);
 
     return NextResponse.json({
@@ -169,7 +261,11 @@ export async function GET(request: NextRequest) {
         wallet: agent.wallet,
         stats: agent.stats
       },
-      launches: agentLaunches
+      launches: agentLaunches,
+      launchFee: {
+        amount: LAUNCH_FEE_SOL,
+        platformWallet: PLATFORM_WALLET
+      }
     });
 
   } catch (error) {
