@@ -9,6 +9,7 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://sovereignlaunch.vercel.app'),
   title: 'SovereignLaunch - Agentic Token Launchpad',
   description: 'Launch tokens with AI-powered agents. Gasless launches, automated trading, and 71+ skills to grow your project on Solana. Powered by BAGS API.',
   keywords: ['token launchpad', 'solana', 'defi', 'crypto', 'meme coin', 'ai agent', 'bags api'],
@@ -18,13 +19,19 @@ export const metadata: Metadata = {
     description: 'Launch tokens with AI-powered agents on Solana',
     type: 'website',
     url: 'https://sovereignlaunch.vercel.app',
-    images: ['/og-image.png'],
+    images: [{
+      url: '/api/og?title=SovereignLaunch&description=Agentic Token Launchpad',
+      width: 1200,
+      height: 630,
+      alt: 'SovereignLaunch - Agentic Token Launchpad'
+    }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'SovereignLaunch',
     description: 'Agentic Token Launchpad powered by BAGS API',
-    images: ['/og-image.png'],
+    images: ['/api/og?title=SovereignLaunch&description=Agentic Token Launchpad'],
+    creator: '@SovereignLaunch',
   },
   icons: {
     icon: '/favicon.ico',

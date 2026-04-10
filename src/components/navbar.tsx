@@ -2,21 +2,17 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { formatAddress } from '@/lib/utils';
-import { Menu, X, Crown, Bot, Rocket, BarChart3, Wallet } from 'lucide-react';
+import { Crown, Menu, X, Bot, Globe, Trophy, FileText } from 'lucide-react';
 
 const navigation = [
   { name: 'Home', href: '/', icon: Crown },
-  { name: 'Launch', href: '/launch', icon: Rocket },
-  { name: 'Agent', href: '/agent', icon: Bot },
-  { name: 'Tokens', href: '/tokens', icon: BarChart3 },
+  { name: 'Feed', href: '/feed', icon: Globe },
+  { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
+  { name: 'Skill Docs', href: '/skill.md', icon: FileText },
 ];
 
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { connected, publicKey } = useWallet();
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 glass">
@@ -51,8 +47,15 @@ export function Navbar() {
             </Link>
           ))}
         </div>
-        <div className="hidden lg:flex lg:flex-1 lg:justify-end lg:gap-4">
-          <WalletMultiButton className="wallet-adapter-button" />
+        <div className="hidden lg:flex lg:flex-1 lg:justify-end">
+          <Link
+            href="/skill.md"
+            target="_blank"
+            className="flex items-center gap-2 text-sm font-semibold text-[#ffd700] hover:text-white transition-colors"
+          >
+            <Bot className="w-4 h-4" />
+            Agent API
+          </Link>
         </div>
       </nav>
 
@@ -90,11 +93,6 @@ export function Navbar() {
                       {item.name}
                     </Link>
                   ))}
-                </div>
-                <div className="py-6">
-                  <div className="flex justify-center">
-                    <WalletMultiButton className="wallet-adapter-button" />
-                  </div>
                 </div>
               </div>
             </div>

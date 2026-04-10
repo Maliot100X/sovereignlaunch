@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "installCommand": "npm ci",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://sovereignlaunch.vercel.app",
+    "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.mainnet-beta.solana.com",
+    "NEXT_PUBLIC_SOLANA_CLUSTER": "mainnet-beta",
+    "NEXT_PUBLIC_PLATFORM_WALLET": "Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx",
+    "NEXT_PUBLIC_PLATFORM_NAME": "SovereignLaunch",
+    "NEXT_PUBLIC_PLATFORM_FEE_PERCENT": "25",
+    "NEXT_PUBLIC_USER_FEE_PERCENT": "70",
+    "NEXT_PUBLIC_PARTNER_FEE_PERCENT": "5",
+    "BAGS_API_URL": "https://public-api-v2.bags.fm/api/v1",
+    "BAGS_API_KEY": "bags_prod_YhTVMoennloNU06kSEDqQ8g_Bdd7_5g7RdcMT1EBr4o"
+  }
+}

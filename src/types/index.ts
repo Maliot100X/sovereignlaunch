@@ -38,6 +38,7 @@ export interface LaunchResponse {
   success: boolean;
   tokenAddress?: string;
   transactionSignature?: string;
+  metadataUrl?: string;
   error?: string;
   message?: string;
 }
