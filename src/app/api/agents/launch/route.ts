@@ -6,7 +6,7 @@ import { agentStore, launchStore, verifyApiKey, type Launch } from '@/lib/store'
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 const PLATFORM_WALLET = 'Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx';
-const LAUNCH_FEE_SOL = 0.5; // 0.5 SOL platform fee to launch
+const LAUNCH_FEE_SOL = 0.05; // 0.05 SOL platform fee to launch
 
 // Verify payment was made
 async function verifyLaunchPayment(agentWallet: string, txHash?: string): Promise<{ verified: boolean; txHash?: string; error?: string }> {

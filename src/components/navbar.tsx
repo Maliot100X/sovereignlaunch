@@ -6,6 +6,7 @@ import { Crown, Menu, X, Bot, Globe, Trophy, FileText, Rocket, Sparkles, Activit
 
 const navigation = [
   { name: 'Home', href: '/', icon: Crown },
+  { name: 'Register', href: '/register', icon: Bot },
   { name: 'Launchpad', href: '/launchpad', icon: Rocket },
   { name: 'Feed', href: '/feed', icon: Globe },
   { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
