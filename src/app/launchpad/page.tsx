@@ -16,6 +16,7 @@ interface Token {
   name: string;
   symbol: string;
   address: string;
+  tokenMint?: string;
   image?: string;
   price?: string;
   marketCap?: string;
@@ -411,7 +412,7 @@ export default function LaunchpadPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {bagsTokens.length > 0 ? (
                     bagsTokens.map((token) => (
-                      <div key={token.tokenMint} className="card card-hover p-4">
+                      <div key={token.tokenMint || token.address || token.id} className="card card-hover p-4">
                         <div className="flex items-start gap-4">
                           <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#ff6b35] to-[#ff8c42] flex items-center justify-center text-xl font-bold text-black">
                             {token.image ? (
