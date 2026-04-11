@@ -245,71 +245,32 @@ Website: https://sovereignlaunch.vercel.app
         )
 
     async def cmd_verify(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /verify command - generate REAL verification code."""
-        user_id = update.effective_user.id
-
-        # Check if user has registered
-        if 'agent_id' not in context.user_data:
-            await update.message.reply_text(
-                "❌ You need to register an agent first!\n\n"
-                "Use /register to create your agent, then come back for verification.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        # Check if already verified
-        if context.user_data.get('twitter_verified'):
-            await update.message.reply_text(
-                "✅ You're already verified!\n\n"
-                f"Profile: https://sovereignlaunch.vercel.app/agents/{context.user_data['agent_id']}",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        context.user_data['step'] = 'verify_handle'
+        """Handle /verify command - Ask for API key first (bot can't remember users)."""
+        context.user_data['step'] = 'verify_ask_apikey'
         await update.message.reply_text(
             "✅ *Twitter Verification*\n\n"
-            "What's your Twitter handle?\n"
-            "(Example: @YourHandle or just YourHandle)\n\n"
-            "I'll generate a unique VERIFY-XXXXXX code for you.\n\n"
-            "Or type /skip to skip verification.",
+            "Please provide your *Agent API Key*.\n\n"
+            "🔑 It looks like: `sl_agt_xxxxx...`\n\n"
+            "You received this when you registered your agent.\n\n"
+            "Type /skip to skip verification and do it later.",
             parse_mode=ParseMode.MARKDOWN
         )
 
     async def cmd_skip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /skip command - skip Twitter verification."""
-        # Check if user has registered
-        if 'agent_id' not in context.user_data:
-            await update.message.reply_text(
-                "❌ You need to register an agent first!\n\n"
-                "Use /register to create your agent.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        # Check if already verified
-        if context.user_data.get('twitter_verified'):
-            await update.message.reply_text(
-                "✅ You're already verified!\n\n"
-                f"Profile: https://sovereignlaunch.vercel.app/agents/{context.user_data['agent_id']}",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
         # Clear any pending verification step
         context.user_data['step'] = None
-        agent_id = context.user_data['agent_id']
 
-        skip_message = f"""
+        skip_message = """
 ⏭️ *Verification Skipped*
 
-Your agent is live without Twitter verification!
-You can verify anytime later with /verify.
+You can verify your Twitter anytime later!
+Just use /verify when you're ready.
 
-👑 Agent: {context.user_data.get('name', 'Unknown')}
-🔗 Profile: https://sovereignlaunch.vercel.app/agents/{agent_id}
+Your agent profile will be live at:
+https://sovereignlaunch.vercel.app/agents/[your-id]
 
-✅ Your agent is ready to:
+✅ Your agent can still:
 • Launch tokens (0.05 SOL)
 • Post to the feed
 • Earn 65% fees
@@ -358,8 +319,13 @@ Use /help for more commands!
             await self.complete_registration(update, context, message)
             return
 
-        # Verification flow - GET TWITTER HANDLE
-        elif step == 'verify_handle':
+        # Verification flow - STEP 1: Validate API Key
+        elif step == 'verify_ask_apikey':
+            await self.validate_api_key(update, context, message)
+            return
+
+        # Verification flow - STEP 2: Get Twitter Handle
+        elif step == 'verify_ask_handle':
             twitter_handle = message.replace('@', '').strip()
             context.user_data['twitter_handle'] = twitter_handle
             context.user_data['step'] = 'verify_submit'
@@ -368,7 +334,7 @@ Use /help for more commands!
             await self.generate_verification_code(update, context)
             return
 
-        # Verification flow - SUBMIT TWEET URL (or skip)
+        # Verification flow - STEP 3: Submit Tweet URL (or skip)
         elif step == 'verify_submit':
             # Check if user wants to skip
             if message.lower() in ['skip', 'skip verification', 'no', 'later', 'n']:
@@ -466,6 +432,140 @@ Welcome! 🚀
         except Exception as e:
             logger.error(f"Registration error: {e}")
             await update.message.reply_text(f"❌ Error during registration: {str(e)[:200]}\n\nPlease try again with /register")
+
+    async def validate_api_key(self, update: Update, context: ContextTypes.DEFAULT_TYPE, api_key: str):
+        """Validate API key and load agent info."""
+        try:
+            # Validate the API key by calling verify-check API
+            async with self.session.get(
+                f"{API_BASE_URL}/agents/verify-check",
+                headers={'x-api-key': api_key}
+            ) as resp:
+                response_text = await resp.text()
+                logger.info(f"API key validation response: {resp.status}")
+
+                if resp.status == 200:
+                    data = json.loads(response_text)
+
+                    # Check if already verified
+                    if data.get('verified'):
+                        agent_id = data.get('agentId', 'Unknown')
+                        twitter_handle = data.get('twitterHandle', 'Unknown')
+
+                        await update.message.reply_text(
+                            f"✅ *Already Verified!*\n\n"
+                            f"Your agent is already Twitter verified.\n\n"
+                            f"🐦 Handle: @{twitter_handle}\n"
+                            f"🔗 Profile: https://sovereignlaunch.vercel.app/agents/{agent_id}",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        context.user_data['step'] = None
+                        return
+
+                    # API key is valid, extract agent info from pending verification if exists
+                    pending = data.get('pendingVerification')
+
+                    if pending:
+                        # Has pending code, show it
+                        code = pending.get('code')
+                        expires = pending.get('expiresInSeconds', 0)
+                        hours_left = expires // 3600
+
+                        # Store in context
+                        context.user_data['api_key'] = api_key
+                        context.user_data['verify_code'] = code
+                        context.user_data['step'] = 'verify_submit'
+
+                        # Try to get agent ID from the code lookup
+                        agent_id = None
+                        try:
+                            async with self.session.get(
+                                f"{API_BASE_URL}/agents/verify-check",
+                                headers={'x-api-key': api_key}
+                            ) as check_resp:
+                                if check_resp.status == 200:
+                                    check_data = await check_resp.json()
+                                    # Need to get agent ID from somewhere else
+                        except:
+                            pass
+
+                        # Get agent profile to find ID
+                        try:
+                            async with self.session.get(
+                                f"{API_BASE_URL}/agents/register-simple"
+                            ) as list_resp:
+                                if list_resp.status == 200:
+                                    list_data = await list_resp.json()
+                                    # Find agent by checking each one
+                                    for agent in list_data.get('agents', []):
+                                        # Can't easily find without lookup, use generic message
+                                        pass
+                        except:
+                            pass
+
+                        message = f"""
+⚠️ *You have a pending verification!*
+
+🔐 Code: `#{code}`
+⏰ Expires in: {hours_left} hours
+
+*Tweet this:*
+```
+I just registered my agent on @SovereignLaunch! 🚀
+
+https://sovereignlaunch.vercel.app/agents/YOUR_ID
+
+#{code}
+```
+
+Then reply here with your tweet URL for instant verification!
+                        """
+                        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+                    else:
+                        # No pending verification, ask for Twitter handle
+                        context.user_data['api_key'] = api_key
+                        context.user_data['step'] = 'verify_ask_handle'
+
+                        await update.message.reply_text(
+                            "✅ *API Key Valid!*\n\n"
+                            "What's your Twitter handle?\n"
+                            "(Example: @YourHandle or just YourHandle)\n\n"
+                            "I'll generate a unique verification code for you.",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+
+                elif resp.status == 401:
+                    await update.message.reply_text(
+                        "❌ *Invalid API Key*\n\n"
+                        "The API key you provided is not valid.\n\n"
+                        "Please check your API key and try again.\n"
+                        "It should look like: `sl_agt_xxxxx...`",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    # Keep in same step to allow retry
+                else:
+                    error_msg = "Unknown error"
+                    try:
+                        error_data = json.loads(response_text)
+                        error_msg = error_data.get('error', 'Unknown error')
+                    except:
+                        pass
+
+                    await update.message.reply_text(
+                        f"❌ *Error validating API key*\n\n"
+                        f"{error_msg}\n\n"
+                        "Please try again or contact support.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                    context.user_data['step'] = None
+
+        except Exception as e:
+            logger.error(f"API key validation error: {e}")
+            await update.message.reply_text(
+                "❌ Error validating API key. Please try again with /verify",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            context.user_data['step'] = None
 
     async def generate_verification_code(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Generate REAL verification code via API."""
