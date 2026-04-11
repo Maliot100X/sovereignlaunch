@@ -89,6 +89,9 @@ export async function POST(request: NextRequest) {
     const cleanHandle = twitterHandle.replace('@', '').trim();
 
     // Store verification code with 24h expiry
+    // Store in TWO formats for compatibility:
+    // 1. verify:{agentId}:{code} - for looking up by agent
+    // 2. verify:{code} - for looking up by code alone
     const verifyData = {
       agentId,
       code,
@@ -99,6 +102,7 @@ export async function POST(request: NextRequest) {
 
     // Store with 24 hour expiry (86400 seconds)
     await redis.setex(`verify:${agentId}:${code}`, 86400, JSON.stringify(verifyData));
+    await redis.setex(`verify:${code}`, 86400, JSON.stringify(verifyData));
 
     // Update agent with twitter handle
     agent.twitterHandle = cleanHandle;
@@ -125,5 +129,5 @@ export async function POST(request: NextRequest) {
       { error: 'Internal server error' },
       { status: 500 }
     );
+    }
   }
-}

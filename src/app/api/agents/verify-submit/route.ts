@@ -54,8 +54,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the verification code in Redis
-    const verifyKey = `verify:${agentId}:${verificationCode}`;
-    const verifyData = await redis.get(verifyKey);
+    // Try multiple possible key formats
+    let verifyKey = `verify:${agentId}:${verificationCode}`;
+    let verifyData = await redis.get(verifyKey);
+
+    // Also try the old format without agentId prefix
+    if (!verifyData) {
+      verifyKey = `verify:${verificationCode}`;
+      verifyData = await redis.get(verifyKey);
+    }
 
     if (!verifyData) {
       return NextResponse.json(
@@ -83,10 +90,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Extract Twitter handle from tweet URL
+    const twitterHandleMatch = tweetUrl.match(/(?:twitter|x)\.com\/(\w+)\/status/);
+    if (twitterHandleMatch) {
+      agent.twitterHandle = '@' + twitterHandleMatch[1];
+    } else if (verification.twitterHandle) {
+      agent.twitterHandle = verification.twitterHandle;
+    }
+
     // Mark agent as verified
     agent.twitterVerified = true;
     agent.verifiedAt = new Date().toISOString();
     agent.tweetUrl = tweetUrl;
+    agent.badge = '✓ Twitter Verified';
     await redis.set(`agent:${agentId}`, JSON.stringify(agent));
 
     // Delete verification code
@@ -98,7 +114,7 @@ export async function POST(request: NextRequest) {
       await telegramBot.sendNotification({
         type: 'system',
         title: '✓ Twitter Verified',
-        message: `Agent *${agent.name}* verified via manual submit!\n\nHandle: @${verification.twitterHandle}`,
+        message: `Agent *${agent.name}* verified via manual submit!\n\nHandle: ${agent.twitterHandle}`,
         timestamp: new Date().toISOString()
       });
     } catch (e) {
@@ -109,7 +125,7 @@ export async function POST(request: NextRequest) {
       success: true,
       verified: true,
       verificationCode,
-      twitterHandle: verification.twitterHandle,
+      twitterHandle: agent.twitterHandle,
       tweetUrl,
       badge: '✓ Twitter Verified',
       message: 'Twitter verification successful! Badge added to profile.',

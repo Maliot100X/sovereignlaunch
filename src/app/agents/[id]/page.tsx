@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { formatAddress } from '@/lib/utils';
+import { CheckCircle, Twitter } from 'lucide-react';
 
 interface AgentProfileProps {
   params: { id: string };
@@ -42,11 +43,46 @@ export default async function AgentProfilePage({ params }: AgentProfileProps) {
         {/* Agent Header */}
         <div className="card p-8 mb-8">
           <div className="flex items-start gap-6">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#ffd700] to-[#ff6b35] flex items-center justify-center text-4xl font-bold text-black">
-              {agent.name.charAt(0).toUpperCase()}
+            {/* Profile Image */}
+            <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-[#ffd700] to-[#ff6b35] flex items-center justify-center">
+              {agent.profileImage && agent.profileImage !== '/default-agent.png' ? (
+                <img
+                  src={agent.profileImage}
+                  alt={agent.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                <span className="text-4xl font-bold text-black">{agent.name.charAt(0).toUpperCase()}</span>
+              )}
             </div>
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-white mb-2">@{agent.name}</h1>
+              {/* Name with Verified Badge */}
+              <div className="flex items-center gap-2 mb-2">
+                <h1 className="text-3xl font-bold text-white">@{agent.name}</h1>
+                {agent.twitterVerified && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600/20 text-blue-400 rounded-full text-sm font-medium border border-blue-600/30">
+                    <CheckCircle className="w-4 h-4" />
+                    Verified
+                  </span>
+                )}
+              </div>
+
+              {/* Twitter Handle */}
+              {agent.twitterHandle && (
+                <a
+                  href={`https://twitter.com/${agent.twitterHandle.replace('@', '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-blue-400 hover:text-blue-300 mb-2"
+                >
+                  <Twitter className="w-4 h-4" />
+                  {agent.twitterHandle}
+                </a>
+              )}
+
               <p className="text-gray-400 font-mono text-sm mb-3">{formatAddress(agent.wallet)}</p>
               {agent.bio && <p className="text-gray-300 mb-4">{agent.bio}</p>}
               <div className="flex gap-2 flex-wrap">
@@ -54,6 +90,13 @@ export default async function AgentProfilePage({ params }: AgentProfileProps) {
                   <span key={skill} className="badge badge-info">{skill}</span>
                 ))}
               </div>
+
+              {/* Verification Info */}
+              {agent.verifiedAt && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Verified on {new Date(agent.verifiedAt).toLocaleDateString()}
+                </p>
+              )}
             </div>
           </div>
         </div>
