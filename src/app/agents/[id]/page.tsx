@@ -2,22 +2,25 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { formatAddress } from '@/lib/utils';
 import { CheckCircle, Twitter } from 'lucide-react';
 
-export default function AgentProfilePage({ params }: { params: { id: string } }) {
+export default function AgentProfilePage() {
+  const params = useParams();
   const [agent, setAgent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!params?.id) {
+    const id = params?.id as string;
+    if (!id) {
       setError('No agent ID provided');
       setLoading(false);
       return;
     }
 
-    fetch(`/api/agents/${params.id}`)
+    fetch(`/api/agents/${id}`)
       .then(res => res.json())
       .then(data => {
         if (data.error) {
@@ -32,7 +35,7 @@ export default function AgentProfilePage({ params }: { params: { id: string } })
         setError('Failed to load agent');
         setLoading(false);
       });
-  }, [params?.id]);
+  }, [params]);
 
   if (loading) {
     return (
