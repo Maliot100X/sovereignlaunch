@@ -1,69 +1,106 @@
-import type { Metadata } from 'next';
+'use client';
+
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { formatAddress } from '@/lib/utils';
 import { CheckCircle, Twitter } from 'lucide-react';
 
-interface AgentProfileProps {
-  params: { id: string };
+interface AgentData {
+  id: string;
+  name: string;
+  bio: string;
+  profileImage: string;
+  twitterVerified: boolean;
+  twitterHandle: string;
+  wallet: string;
+  createdAt: string;
+  skills?: string[];
+  stats?: {
+    tokensLaunched?: number;
+    followers?: number;
+    totalVolume?: number;
+    totalFees?: number;
+  };
+  launches?: any[];
+  posts?: any[];
+  verifiedAt?: string;
 }
 
-async function getAgent(id: string) {
-  try {
-    // Use relative URL or absolute with fallback
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://sovereignlaunch.vercel.app';
-    const res = await fetch(`${baseUrl}/api/agents/${id}`, {
-      next: { revalidate: 60 },
-      headers: { 'Accept': 'application/json' }
-    });
-    if (!res.ok) {
-      console.error(`[getAgent] API error: ${res.status}`);
-      return null;
-    }
-    const data = await res.json();
-    if (data.error) {
-      console.error(`[getAgent] API returned error:`, data.error);
-      return null;
-    }
-    return data;
-  } catch (err) {
-    console.error('[getAgent] Fetch error:', err);
-    return null;
-  }
-}
+export default function AgentProfilePage() {
+  const params = useParams();
+  const [agent, setAgent] = useState<AgentData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-export async function generateMetadata({ params }: AgentProfileProps): Promise<Metadata> {
-  try {
-    const agent = await getAgent(params.id);
-    if (!agent || !agent.name) return { title: 'Agent Not Found' };
+  useEffect(() => {
+    const fetchAgent = async () => {
+      try {
+        const id = params?.id as string;
+        if (!id) {
+          setError('No agent ID provided');
+          setLoading(false);
+          return;
+        }
 
-    return {
-      title: `${agent.name} | SovereignLaunch Agent`,
-      description: agent.bio || `Agent profile for ${agent.name} on SovereignLaunch`,
-      openGraph: {
-        images: [`/api/og?title=${encodeURIComponent(agent.name)}&description=${encodeURIComponent(agent.bio || '')}`],
-      },
+        const res = await fetch(`/api/agents/${id}`);
+        const data = await res.json();
+
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        // Safe defaults for ALL fields
+        const safeAgent: AgentData = {
+          id: data?.id || id,
+          name: data?.name || 'Unknown Agent',
+          bio: data?.bio || '',
+          profileImage: data?.profileImage || '/default-avatar.png',
+          twitterVerified: !!data?.twitterVerified,
+          twitterHandle: data?.twitterHandle || '',
+          wallet: data?.wallet || '',
+          createdAt: data?.createdAt || new Date().toISOString(),
+          skills: data?.skills || [],
+          stats: {
+            tokensLaunched: data?.stats?.tokensLaunched || 0,
+            followers: data?.stats?.followers || 0,
+            totalVolume: data?.stats?.totalVolume || 0,
+            totalFees: data?.stats?.totalFees || 0,
+          },
+          launches: data?.launches || [],
+          posts: data?.posts || [],
+          verifiedAt: data?.verifiedAt,
+        };
+
+        setAgent(safeAgent);
+      } catch (err) {
+        console.error('[AgentProfile] Error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load agent');
+      } finally {
+        setLoading(false);
+      }
     };
-  } catch (err) {
-    console.error('[generateMetadata] Error:', err);
-    return { title: 'Agent Profile' };
-  }
-}
 
-export default async function AgentProfilePage({ params }: AgentProfileProps) {
-  let rawAgent;
-  try {
-    rawAgent = await getAgent(params.id);
-  } catch (err) {
-    console.error('[AgentProfile] Fetch error:', err);
-    rawAgent = null;
+    fetchAgent();
+  }, [params?.id]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen py-20 px-4">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#ffd700] mx-auto"></div>
+          <p className="mt-4 text-gray-400">Loading agent profile...</p>
+        </div>
+      </div>
+    );
   }
 
-  if (!rawAgent) {
+  if (error || !agent) {
     return (
       <div className="min-h-screen py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-2xl font-bold text-white mb-4">Agent Not Found</h1>
-          <p className="text-gray-400 mb-4">This agent does not exist or has been removed.</p>
+          <p className="text-gray-400 mb-4">{error || 'This agent does not exist or has been removed.'}</p>
           <Link href="/agents" className="text-[#ffd700] hover:underline">
             View All Agents
           </Link>
@@ -71,24 +108,6 @@ export default async function AgentProfilePage({ params }: AgentProfileProps) {
       </div>
     );
   }
-
-  // Safe defaults for ALL agent fields
-  const agent = {
-    id: rawAgent?.id || params.id,
-    name: rawAgent?.name || 'Unknown Agent',
-    bio: rawAgent?.bio || '',
-    profileImage: rawAgent?.profileImage || '/default-avatar.png',
-    twitterVerified: !!rawAgent?.twitterVerified,
-    twitterHandle: rawAgent?.twitterHandle || '',
-    wallet: rawAgent?.wallet || '',
-    verifiedAt: rawAgent?.verifiedAt || null,
-    skills: rawAgent?.skills || [],
-    stats: rawAgent?.stats || { tokensLaunched: 0, totalVolume: 0, totalFees: 0, tradesExecuted: 0, followers: 0, following: 0 },
-    createdAt: rawAgent?.createdAt || new Date().toISOString(),
-    posts: rawAgent?.posts || [],
-    launches: rawAgent?.launches || [],
-    badge: rawAgent?.twitterVerified ? '✓ Verified' : null
-  };
 
   return (
     <div className="min-h-screen py-20 px-4">
@@ -98,7 +117,7 @@ export default async function AgentProfilePage({ params }: AgentProfileProps) {
           <div className="flex items-start gap-6">
             {/* Profile Image */}
             <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-[#ffd700] to-[#ff6b35] flex items-center justify-center">
-              {agent.profileImage && agent.profileImage !== '/default-agent.png' ? (
+              {agent.profileImage && agent.profileImage !== '/default-avatar.png' ? (
                 <img
                   src={agent.profileImage}
                   alt={agent.name}
