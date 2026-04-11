@@ -49,22 +49,23 @@ export async function GET(request: NextRequest) {
     const data = await response.json();
 
     // Transform to our format and apply limit locally
+    // BAGS API returns data in data.response array
     const allTokens = (data.tokens || data.data || data.response || []);
     const tokens = allTokens.slice(0, limit).map((token: any) => ({
-      tokenMint: token.tokenMint || token.address || token.mint,
-      name: token.name || 'Unknown Token',
-      symbol: token.symbol || '???',
-      price: token.price || token.currentPrice || 0,
-      marketCap: token.marketCap || token.market_cap || 0,
-      volume24h: token.volume24h || token.volume_24h || token.volume || 0,
-      holders: token.holders || token.holderCount || 0,
-      image: token.imageUrl || token.image || token.logoURI,
-      imageUrl: token.imageUrl || token.image || token.logoURI,
-      status: token.status || 'Live',
-      creator: token.creator || { name: token.creatorName || 'Unknown' },
-      launchedAt: token.launchedAt || token.createdAt || token.timestamp || new Date().toISOString(),
-      priceChange24h: token.priceChange24h || token.price_change_24h || 0,
-      address: token.tokenMint || token.address || token.mint
+      tokenMint: String(token.tokenMint || token.address || token.mint || ''),
+      name: String(token.name || 'Unknown Token'),
+      symbol: String(token.symbol || '???'),
+      price: Number(token.price || token.currentPrice || 0),
+      marketCap: Number(token.marketCap || token.market_cap || 0),
+      volume24h: Number(token.volume24h || token.volume_24h || token.volume || 0),
+      holders: Number(token.holders || token.holderCount || 0),
+      image: String(token.imageUrl || token.image || token.logoURI || '/placeholder-token.png'),
+      imageUrl: String(token.imageUrl || token.image || token.logoURI || '/placeholder-token.png'),
+      status: String(token.status || 'Live'),
+      creator: token.creator || { name: String(token.creatorName || 'Unknown') },
+      launchedAt: String(token.launchedAt || token.createdAt || token.timestamp || new Date().toISOString()),
+      priceChange24h: Number(token.priceChange24h || token.price_change_24h || 0),
+      address: String(token.tokenMint || token.address || token.mint || '')
     }));
 
     const result = {

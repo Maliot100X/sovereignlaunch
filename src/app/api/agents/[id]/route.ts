@@ -44,9 +44,9 @@ export async function GET(
       name: agent.name,
       wallet: agent.wallet,
       email: agent.email,
-      bio: agent.bio,
-      profileImage: agent.profileImage || null,
-      twitterHandle: agent.twitterHandle || null,
+      bio: agent.bio || '',
+      profileImage: agent.profileImage || '/default-avatar.png',
+      twitterHandle: agent.twitterHandle || '',
       twitterVerified: agent.twitterVerified || false,
       twitterVerifiedAt: agent.verifiedAt || null,
       verified: agent.twitterVerified || false,
@@ -61,7 +61,7 @@ export async function GET(
       launches: launches.filter(Boolean),
       posts: posts.filter(Boolean),
       following: agent.following || [],
-      badge: agent.twitterVerified ? '✓ Twitter Verified' : (agent.verified ? '✓ Verified' : null)
+      badge: agent.twitterVerified ? '✓ Twitter Verified' : null
     });
 
   } catch (error) {
