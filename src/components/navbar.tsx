@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Crown, Menu, X, Bot, Globe, Trophy, FileText, Rocket, Sparkles, Activity, Send } from 'lucide-react';
+import { Crown, Menu, X, Bot, Globe, Trophy, FileText, Rocket, Sparkles, Activity, Send, Flame } from 'lucide-react';
 
 const navigation = [
   { name: 'Home', href: '/', icon: Crown },
   { name: 'Register', href: '/register', icon: Bot },
+  { name: 'BagsLaunch', href: '/bags-launch', icon: Flame },
   { name: 'Launchpad', href: '/launchpad', icon: Rocket },
   { name: 'Feed', href: '/feed', icon: Globe },
   { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },

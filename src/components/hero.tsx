@@ -43,26 +43,17 @@ export function Hero() {
   });
 
   useEffect(() => {
-    // Fetch real stats from Redis-backed APIs
+    // Fetch real stats from Redis via /api/stats
     const fetchStats = async () => {
       try {
-        // Get agent count from Redis
-        const agentsRes = await fetch('/api/agents/register-simple');
-        if (agentsRes.ok) {
-          const agentsData = await agentsRes.json();
+        const res = await fetch('/api/stats');
+        if (res.ok) {
+          const data = await res.json();
           setStats(prev => ({
             ...prev,
-            agents: agentsData.total || 0
-          }));
-        }
-
-        // Get token count from Redis
-        const tokensRes = await fetch('/api/tokens?limit=1');
-        if (tokensRes.ok) {
-          const tokensData = await tokensRes.json();
-          setStats(prev => ({
-            ...prev,
-            tokens: tokensData.total || 0
+            agents: data.agents || 0,
+            tokens: data.tokens || 0,
+            volume: Math.floor((data.volume || 0) / 1000000) // Convert to millions
           }));
         }
       } catch (err) {
@@ -71,7 +62,7 @@ export function Hero() {
     };
 
     fetchStats();
-    const interval = setInterval(fetchStats, 30000);
+    const interval = setInterval(fetchStats, 30000); // Refresh every 30s
     return () => clearInterval(interval);
   }, []);
 
