@@ -260,7 +260,7 @@ export default function BagsLaunch() {
                       By: {token.creator?.name || 'Unknown'}
                     </div>
                     <a
-                      href={`https://bags.fm/token/${token.tokenMint}`}
+                      href={`https://bags.fm/${token.tokenMint}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-[#ffd700] hover:text-[#ff6b35] flex items-center gap-1 transition-colors"

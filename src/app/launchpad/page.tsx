@@ -448,7 +448,7 @@ export default function LaunchpadPage() {
                           </div>
 
                           <Link
-                            href={`https://bags.fm/token/${token.tokenMint || token.address}`}
+                            href={`https://bags.fm/${token.tokenMint || token.address}`}
                             target="_blank"
                             className="text-gray-400 hover:text-[#ff6b35] transition-colors"
                           >

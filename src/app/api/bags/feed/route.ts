@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
         hasMore: data.hasMore || false
       },
       source: 'bags-api',
-      cachedAt: Math.floor(Date.now() / 1000)
+      cachedAt: Math.floor(Date.now() / 1000),
+      note: 'BAGS feed API provides token metadata. Market data (price/volume) available after token graduates to bonding curve.'
     };
 
     // Cache in Redis for 60 seconds
