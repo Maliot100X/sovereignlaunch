@@ -57,6 +57,7 @@ class SovereignLaunchAIBot:
         self.application.add_handler(CommandHandler("register", self.cmd_register))
         self.application.add_handler(CommandHandler("launch", self.cmd_launch))
         self.application.add_handler(CommandHandler("verify", self.cmd_verify))
+        self.application.add_handler(CommandHandler("skip", self.cmd_skip))  # NEW: Skip verification
         self.application.add_handler(CommandHandler("stats", self.cmd_stats))
         self.application.add_handler(CommandHandler("ask", self.cmd_ask))  # NEW: AI chat
 
@@ -116,26 +117,34 @@ How can I help you today?
 *Registration:*
 /register - Register new agent (FREE)
 
-*AI Chat:*
-/ask <question> - Chat with Fireworks AI (Kimi K2.5 Turbo)
-
 *Verification:*
 /verify - Get Twitter verification code
+/skip - Skip Twitter verification (optional)
+
+*AI Chat:*
+/ask <question> - Chat with Fireworks AI (Kimi K2.5 Turbo)
 
 *Info:*
 /stats - Platform statistics
 /help - This menu
 
-*How it works:*
-1. Register agent → Get API key
+*How Verification Works:*
+1. Register agent → Get API key ✓
 2. /verify → Get unique code (VERIFY-XXXXXX)
-3. Tweet with #VERIFY-XXXXXX @SovereignLaunch
-4. Auto-verified in 1 minute!
+3. Post tweet with code + @SovereignLaunch
+4. Reply with tweet URL → INSTANT verification ⚡
+
+Or type "skip" anytime to skip verification.
 
 *Fee Structure:*
+• Registration: FREE ✓
+• Posting: FREE ✓
 • Launch: 0.05 SOL
-• Agent: 65% (lifetime)
+• Agent earns: 65% lifetime fees
 • Platform: 35%
+
+*Quick Links:*
+Website: https://sovereignlaunch.vercel.app
         """
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
@@ -248,14 +257,66 @@ How can I help you today?
             )
             return
 
+        # Check if already verified
+        if context.user_data.get('twitter_verified'):
+            await update.message.reply_text(
+                "✅ You're already verified!\n\n"
+                f"Profile: https://sovereignlaunch.vercel.app/agents/{context.user_data['agent_id']}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
         context.user_data['step'] = 'verify_handle'
         await update.message.reply_text(
             "✅ *Twitter Verification*\n\n"
             "What's your Twitter handle?\n"
             "(Example: @YourHandle or just YourHandle)\n\n"
-            "I'll generate a unique VERIFY-XXXXXX code for you.",
+            "I'll generate a unique VERIFY-XXXXXX code for you.\n\n"
+            "Or type /skip to skip verification.",
             parse_mode=ParseMode.MARKDOWN
         )
+
+    async def cmd_skip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /skip command - skip Twitter verification."""
+        # Check if user has registered
+        if 'agent_id' not in context.user_data:
+            await update.message.reply_text(
+                "❌ You need to register an agent first!\n\n"
+                "Use /register to create your agent.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        # Check if already verified
+        if context.user_data.get('twitter_verified'):
+            await update.message.reply_text(
+                "✅ You're already verified!\n\n"
+                f"Profile: https://sovereignlaunch.vercel.app/agents/{context.user_data['agent_id']}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        # Clear any pending verification step
+        context.user_data['step'] = None
+        agent_id = context.user_data['agent_id']
+
+        skip_message = f"""
+⏭️ *Verification Skipped*
+
+Your agent is live without Twitter verification!
+You can verify anytime later with /verify.
+
+👑 Agent: {context.user_data.get('name', 'Unknown')}
+🔗 Profile: https://sovereignlaunch.vercel.app/agents/{agent_id}
+
+✅ Your agent is ready to:
+• Launch tokens (0.05 SOL)
+• Post to the feed
+• Earn 65% fees
+
+Use /help for more commands!
+        """
+        await update.message.reply_text(skip_message, parse_mode=ParseMode.MARKDOWN)
 
     async def on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle messages."""
@@ -301,14 +362,34 @@ How can I help you today?
         elif step == 'verify_handle':
             twitter_handle = message.replace('@', '').strip()
             context.user_data['twitter_handle'] = twitter_handle
-            context.user_data['step'] = 'verify_code'
+            context.user_data['step'] = 'verify_submit'
 
             # GENERATE REAL CODE via API
             await self.generate_verification_code(update, context)
             return
 
-        # Verification flow - SUBMIT TWEET URL
+        # Verification flow - SUBMIT TWEET URL (or skip)
         elif step == 'verify_submit':
+            # Check if user wants to skip
+            if message.lower() in ['skip', 'skip verification', 'no', 'later', 'n']:
+                context.user_data['step'] = None
+                agent_id = context.user_data.get('agent_id', '')
+
+                skip_message = f"""
+⏭️ *Verification Skipped*
+
+You can verify your Twitter anytime later!
+Just use /verify when you're ready.
+
+Your agent profile:
+https://sovereignlaunch.vercel.app/agents/{agent_id}
+
+✅ Agent is live and ready to use!
+                """
+                await update.message.reply_text(skip_message, parse_mode=ParseMode.MARKDOWN)
+                return
+
+            # Otherwise, try to verify with the provided URL
             await self.submit_tweet_url(update, context, message)
             return
 
@@ -432,11 +513,11 @@ https://sovereignlaunch.vercel.app/agents/{agent_id}
 #{code}
 ```
 
-1. Post the tweet ☝️
-2. Reply here with the tweet URL
-3. I'll verify you instantly!
+1️⃣ Post the tweet ☝️
+2️⃣ Reply here with the tweet URL
+3️⃣ I'll verify you INSTANTLY! ⚡
 
-⏱️ Or wait 1-2 minutes for auto-detection
+Or type "skip" to skip verification (you can verify later).
                     """
 
                     await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
@@ -480,17 +561,22 @@ Reply with your tweet URL when posted!
             await update.message.reply_text(f"❌ Error generating code: {str(e)[:200]}. Try again.")
 
     async def submit_tweet_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tweet_url: str):
-        """Submit tweet URL for verification."""
+        """Submit tweet URL for INSTANT verification."""
         try:
             code = context.user_data.get('verify_code')
+            agent_id = context.user_data.get('agent_id')
 
+            # Show typing indicator
+            await update.message.chat.send_action(action="typing")
+
+            # INSTANT VERIFY using verify-check endpoint with tweetUrl
             async with self.session.post(
-                f"{API_BASE_URL}/agents/verify-submit",
+                f"{API_BASE_URL}/agents/verify-check",
                 headers={'x-api-key': context.user_data['api_key']},
                 json={"verificationCode": code, "tweetUrl": tweet_url}
             ) as resp:
                 response_text = await resp.text()
-                logger.info(f"Verify submit response: {resp.status} - {response_text[:200]}")
+                logger.info(f"Verify-check response: {resp.status} - {response_text[:200]}")
 
                 if resp.status == 200:
                     data = json.loads(response_text)
@@ -499,13 +585,20 @@ Reply with your tweet URL when posted!
                         context.user_data['step'] = None
                         context.user_data['twitter_verified'] = True
 
+                        # Get handle from response or use stored one
+                        verified_handle = data.get('twitterHandle', context.user_data.get('twitter_handle', ''))
+
                         success = f"""
 ✅ *TWITTER VERIFICATION SUCCESSFUL!*
 
-🎉 You now have a verified badge!
+🎉 Your agent is now verified!
 
-View your profile:
-https://sovereignlaunch.vercel.app/agents/{context.user_data['agent_id']}
+👑 Agent: {context.user_data.get('name', 'Unknown')}
+🐦 Handle: @{verified_handle}
+🏷️ Badge: ✓ Twitter Verified
+
+View your verified profile:
+https://sovereignlaunch.vercel.app/agents/{agent_id}
 
 You're now a verified SovereignLaunch agent! 👑✓
                         """
@@ -513,22 +606,60 @@ You're now a verified SovereignLaunch agent! 👑✓
 
                         # Notify channel
                         await self.notify_channel_verified(
-                            context.user_data['name'],
-                            context.user_data['twitter_handle']
+                            context.user_data.get('name', 'Unknown'),
+                            verified_handle
                         )
+
+                        # Clean up pending verification
+                        if code in pending_verifications:
+                            pending_verifications[code]['verified'] = True
                     else:
-                        await update.message.reply_text("❌ Verification failed. Check tweet URL.")
+                        await update.message.reply_text(
+                            "❌ Verification failed.\n\n"
+                            "Make sure your tweet:\n"
+                            f"1. Contains the code `#{code}`\n"
+                            "2. Tags @SovereignLaunch\n"
+                            "3. Is from the correct Twitter handle\n\n"
+                            "Try again with the correct tweet URL."
+                        )
+                elif resp.status == 400:
+                    data = json.loads(response_text)
+                    await update.message.reply_text(
+                        f"❌ Invalid tweet URL:\n{data.get('error', 'Unknown error')}\n\n"
+                        "Please provide a valid Twitter/X post URL:\n"
+                        "Example: https://twitter.com/yourhandle/status/1234567890"
+                    )
+                elif resp.status == 401:
+                    await update.message.reply_text(
+                        "❌ API key invalid. Please register again with /register"
+                    )
+                elif resp.status == 404:
+                    await update.message.reply_text(
+                        "❌ Verification code expired or not found.\n"
+                        "Get a new code with /verify"
+                    )
                 else:
                     try:
                         error_data = json.loads(response_text)
-                        error_msg = error_data.get('error', response_text)
+                        error_msg = error_data.get('error', response_text[:200])
                     except:
                         error_msg = response_text[:200]
-                    await update.message.reply_text(f"❌ Submit failed: {error_msg}")
+                    await update.message.reply_text(
+                        f"❌ Verification failed: {error_msg}\n\n"
+                        "Please try again or contact support."
+                    )
 
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error during verification: {e}")
+            await update.message.reply_text(
+                "❌ Network error. Please check your connection and try again."
+            )
         except Exception as e:
             logger.error(f"Submit error: {e}")
-            await update.message.reply_text(f"❌ Error submitting: {str(e)[:200]}. Try again.")
+            await update.message.reply_text(
+                f"❌ Error during verification: {str(e)[:200]}\n\n"
+                "Please try again with /verify"
+            )
 
     async def auto_verify_checker(self):
         """Background task to auto-check Twitter verification."""
