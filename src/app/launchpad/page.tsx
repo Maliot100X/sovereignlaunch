@@ -18,9 +18,9 @@ interface Token {
   address: string;
   tokenMint?: string;
   image?: string;
-  price?: string;
-  marketCap?: string;
-  volume24h?: string;
+  price?: number;
+  marketCap?: number;
+  volume24h?: number;
   createdAt?: string;
   agentName?: string;
   launchedBy?: string;
