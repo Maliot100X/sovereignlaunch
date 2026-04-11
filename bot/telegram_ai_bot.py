@@ -32,7 +32,8 @@ API_BASE_URL = os.getenv('API_BASE_URL', 'https://sovereignlaunch.vercel.app/api
 FIREWORKS_API_KEY = os.getenv('FIREWORKS_API_KEY', 'fw_BreBS5zpPa8t5J7B6NPrPz')
 
 # Fireworks AI Configuration
-FIREWORKS_MODEL = "accounts/fireworks/models/llama-v3p1-405b-instruct"
+# Using Kimi K2.5 Turbo via Fireworks router
+FIREWORKS_MODEL = "accounts/fireworks/routers/kimi-k2p5-turbo"
 FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
 
 # Store pending verifications (in production use Redis)
@@ -204,32 +205,61 @@ Website: https://sovereignlaunch.vercel.app
                 "max_tokens": 1000
             }
 
+            logger.info(f"Calling Fireworks AI with model: {FIREWORKS_MODEL}")
+
             async with self.session.post(
                 FIREWORKS_URL,
                 headers=headers,
                 json=payload
             ) as resp:
+                response_text = await resp.text()
+                logger.info(f"Fireworks AI response status: {resp.status}")
+
                 if resp.status == 200:
-                    data = await resp.json()
-                    ai_response = data['choices'][0]['message']['content']
+                    try:
+                        data = json.loads(response_text)
+                        ai_response = data['choices'][0]['message']['content']
 
-                    # Add AI response to history
-                    conversation_history[user_id].append({"role": "assistant", "content": ai_response})
+                        # Add AI response to history
+                        conversation_history[user_id].append({"role": "assistant", "content": ai_response})
 
-                    # Send response
+                        # Send response (truncate if too long for Telegram)
+                        max_length = 4000
+                        if len(ai_response) > max_length:
+                            ai_response = ai_response[:max_length] + "\n\n... (response truncated)"
+
+                        await update.message.reply_text(
+                            f"🤖 *AI Response:*\n\n{ai_response}",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.error(f"Failed to parse Fireworks response: {e}, response: {response_text[:500]}")
+                        await update.message.reply_text(
+                            "❌ Error parsing AI response. Please try again."
+                        )
+                elif resp.status == 401:
+                    logger.error(f"Fireworks API key invalid")
                     await update.message.reply_text(
-                        f"🤖 *AI Response:*\n\n{ai_response}",
-                        parse_mode=ParseMode.MARKDOWN
+                        "❌ AI service authentication error. Please contact support."
+                    )
+                elif resp.status == 429:
+                    logger.error(f"Fireworks rate limit hit")
+                    await update.message.reply_text(
+                        "❌ AI service is busy. Please try again in a moment."
                     )
                 else:
-                    error_text = await resp.text()
-                    logger.error(f"Fireworks AI error: {error_text}")
+                    logger.error(f"Fireworks AI error: {resp.status} - {response_text[:500]}")
                     await update.message.reply_text(
-                        "❌ Sorry, I couldn't process your question. Please try again."
+                        f"❌ AI service error ({resp.status}). Please try again later."
                     )
 
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error calling Fireworks: {e}")
+            await update.message.reply_text(
+                "❌ Network error connecting to AI. Please check your connection."
+            )
         except Exception as e:
-            logger.error(f"Ask command error: {e}")
+            logger.error(f"Ask command error: {e}", exc_info=True)
             await update.message.reply_text(
                 "❌ Error connecting to AI. Please try again later."
             )
@@ -858,24 +888,33 @@ Badge added to profile! ✓
             logger.error(f"Verified notify error: {e}")
 
     async def on_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button callbacks."""
+        """Handle button callbacks - trigger actual commands."""
         query = update.callback_query
         await query.answer()
 
         data = query.data
 
         if data == "register_start":
+            # Send a new message to trigger registration
+            await query.delete_message()
             await self.cmd_register(update, context)
         elif data == "verify_start":
+            # Send a new message to trigger verify
+            await query.delete_message()
             await self.cmd_verify(update, context)
         elif data == "ask_ai":
-            await query.edit_message_text(
-                "🤖 *Ask me anything!*\n\n"
-                "Use: `/ask Your question here`\n\n"
-                "Example: `/ask What is Solana?`",
+            # Send a new message asking for question
+            await query.delete_message()
+            await self.application.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="🤖 *Ask me anything!*\n\n"
+                     "Type your question with /ask:\n"
+                     "Example: `/ask What is Solana?`\n\n"
+                     "Or just type your question and I'll answer!",
                 parse_mode=ParseMode.MARKDOWN
             )
         elif data == "view_stats":
+            await query.delete_message()
             await self.cmd_stats(update, context)
 
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
