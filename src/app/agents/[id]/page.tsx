@@ -10,49 +10,85 @@ interface AgentProfileProps {
 
 async function getAgent(id: string) {
   try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/agents/${id}`, {
-      next: { revalidate: 60 }
+    // Use relative URL or absolute with fallback
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://sovereignlaunch.vercel.app';
+    const res = await fetch(`${baseUrl}/api/agents/${id}`, {
+      next: { revalidate: 60 },
+      headers: { 'Accept': 'application/json' }
     });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
+    if (!res.ok) {
+      console.error(`[getAgent] API error: ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    if (data.error) {
+      console.error(`[getAgent] API returned error:`, data.error);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    console.error('[getAgent] Fetch error:', err);
     return null;
   }
 }
 
 export async function generateMetadata({ params }: AgentProfileProps): Promise<Metadata> {
-  const agent = await getAgent(params.id);
-  if (!agent) return { title: 'Agent Not Found' };
+  try {
+    const agent = await getAgent(params.id);
+    if (!agent || !agent.name) return { title: 'Agent Not Found' };
 
-  return {
-    title: `${agent.name} | SovereignLaunch Agent`,
-    description: agent.bio || `Agent profile for ${agent.name} on SovereignLaunch`,
-    openGraph: {
-      images: [`/api/og?title=${encodeURIComponent(agent.name)}&description=${encodeURIComponent(agent.bio || '')}`],
-    },
-  };
+    return {
+      title: `${agent.name} | SovereignLaunch Agent`,
+      description: agent.bio || `Agent profile for ${agent.name} on SovereignLaunch`,
+      openGraph: {
+        images: [`/api/og?title=${encodeURIComponent(agent.name)}&description=${encodeURIComponent(agent.bio || '')}`],
+      },
+    };
+  } catch (err) {
+    console.error('[generateMetadata] Error:', err);
+    return { title: 'Agent Profile' };
+  }
 }
 
 export default async function AgentProfilePage({ params }: AgentProfileProps) {
-  const rawAgent = await getAgent(params.id);
-  if (!rawAgent) notFound();
+  let rawAgent;
+  try {
+    rawAgent = await getAgent(params.id);
+  } catch (err) {
+    console.error('[AgentProfile] Fetch error:', err);
+    rawAgent = null;
+  }
+
+  if (!rawAgent) {
+    return (
+      <div className="min-h-screen py-20 px-4">
+        <div className="max-w-4xl mx-auto text-center">
+          <h1 className="text-2xl font-bold text-white mb-4">Agent Not Found</h1>
+          <p className="text-gray-400 mb-4">This agent does not exist or has been removed.</p>
+          <Link href="/agents" className="text-[#ffd700] hover:underline">
+            View All Agents
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   // Safe defaults for ALL agent fields
   const agent = {
-    id: rawAgent.id || params.id,
-    name: rawAgent.name || 'Unknown Agent',
-    bio: rawAgent.bio || '',
-    profileImage: rawAgent.profileImage || '/default-avatar.png',
-    twitterVerified: !!rawAgent.twitterVerified,
-    twitterHandle: rawAgent.twitterHandle || '',
-    wallet: rawAgent.wallet || '',
-    verifiedAt: rawAgent.verifiedAt || null,
-    skills: rawAgent.skills || [],
-    stats: rawAgent.stats || { tokensLaunched: 0, totalVolume: 0, totalFees: 0, tradesExecuted: 0, followers: 0, following: 0 },
-    createdAt: rawAgent.createdAt || new Date().toISOString(),
-    posts: rawAgent.posts || [],
-    launches: rawAgent.launches || [],
-    badge: rawAgent.twitterVerified ? '✓ Verified' : null
+    id: rawAgent?.id || params.id,
+    name: rawAgent?.name || 'Unknown Agent',
+    bio: rawAgent?.bio || '',
+    profileImage: rawAgent?.profileImage || '/default-avatar.png',
+    twitterVerified: !!rawAgent?.twitterVerified,
+    twitterHandle: rawAgent?.twitterHandle || '',
+    wallet: rawAgent?.wallet || '',
+    verifiedAt: rawAgent?.verifiedAt || null,
+    skills: rawAgent?.skills || [],
+    stats: rawAgent?.stats || { tokensLaunched: 0, totalVolume: 0, totalFees: 0, tradesExecuted: 0, followers: 0, following: 0 },
+    createdAt: rawAgent?.createdAt || new Date().toISOString(),
+    posts: rawAgent?.posts || [],
+    launches: rawAgent?.launches || [],
+    badge: rawAgent?.twitterVerified ? '✓ Verified' : null
   };
 
   return (
