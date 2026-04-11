@@ -34,8 +34,26 @@ export async function generateMetadata({ params }: AgentProfileProps): Promise<M
 }
 
 export default async function AgentProfilePage({ params }: AgentProfileProps) {
-  const agent = await getAgent(params.id);
-  if (!agent) notFound();
+  const rawAgent = await getAgent(params.id);
+  if (!rawAgent) notFound();
+
+  // Safe defaults for ALL agent fields
+  const agent = {
+    id: rawAgent.id || params.id,
+    name: rawAgent.name || 'Unknown Agent',
+    bio: rawAgent.bio || '',
+    profileImage: rawAgent.profileImage || '/default-avatar.png',
+    twitterVerified: !!rawAgent.twitterVerified,
+    twitterHandle: rawAgent.twitterHandle || '',
+    wallet: rawAgent.wallet || '',
+    verifiedAt: rawAgent.verifiedAt || null,
+    skills: rawAgent.skills || [],
+    stats: rawAgent.stats || { tokensLaunched: 0, totalVolume: 0, totalFees: 0, tradesExecuted: 0, followers: 0, following: 0 },
+    createdAt: rawAgent.createdAt || new Date().toISOString(),
+    posts: rawAgent.posts || [],
+    launches: rawAgent.launches || [],
+    badge: rawAgent.twitterVerified ? '✓ Verified' : null
+  };
 
   return (
     <div className="min-h-screen py-20 px-4">
