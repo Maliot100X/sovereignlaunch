@@ -2,86 +2,36 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
 import { formatAddress } from '@/lib/utils';
 import { CheckCircle, Twitter } from 'lucide-react';
 
-interface AgentData {
-  id: string;
-  name: string;
-  bio: string;
-  profileImage: string;
-  twitterVerified: boolean;
-  twitterHandle: string;
-  wallet: string;
-  createdAt: string;
-  skills?: string[];
-  stats?: {
-    tokensLaunched?: number;
-    followers?: number;
-    totalVolume?: number;
-    totalFees?: number;
-  };
-  launches?: any[];
-  posts?: any[];
-  verifiedAt?: string;
-}
-
-export default function AgentProfilePage() {
-  const params = useParams();
-  const [agent, setAgent] = useState<AgentData | null>(null);
+export default function AgentProfilePage({ params }: { params: { id: string } }) {
+  const [agent, setAgent] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchAgent = async () => {
-      try {
-        const id = params?.id as string;
-        if (!id) {
-          setError('No agent ID provided');
-          setLoading(false);
-          return;
-        }
+    if (!params?.id) {
+      setError('No agent ID provided');
+      setLoading(false);
+      return;
+    }
 
-        const res = await fetch(`/api/agents/${id}`);
-        const data = await res.json();
-
+    fetch(`/api/agents/${params.id}`)
+      .then(res => res.json())
+      .then(data => {
         if (data.error) {
-          throw new Error(data.error);
+          setError(data.error);
+        } else {
+          setAgent(data);
         }
-
-        // Safe defaults for ALL fields
-        const safeAgent: AgentData = {
-          id: data?.id || id,
-          name: data?.name || 'Unknown Agent',
-          bio: data?.bio || '',
-          profileImage: data?.profileImage || '/default-avatar.png',
-          twitterVerified: !!data?.twitterVerified,
-          twitterHandle: data?.twitterHandle || '',
-          wallet: data?.wallet || '',
-          createdAt: data?.createdAt || new Date().toISOString(),
-          skills: data?.skills || [],
-          stats: {
-            tokensLaunched: data?.stats?.tokensLaunched || 0,
-            followers: data?.stats?.followers || 0,
-            totalVolume: data?.stats?.totalVolume || 0,
-            totalFees: data?.stats?.totalFees || 0,
-          },
-          launches: data?.launches || [],
-          posts: data?.posts || [],
-          verifiedAt: data?.verifiedAt,
-        };
-
-        setAgent(safeAgent);
-      } catch (err) {
-        console.error('[AgentProfile] Error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load agent');
-      } finally {
         setLoading(false);
-      }
-    };
-
-    fetchAgent();
+      })
+      .catch(err => {
+        console.error('Fetch error:', err);
+        setError('Failed to load agent');
+        setLoading(false);
+      });
   }, [params?.id]);
 
   if (loading) {
@@ -100,7 +50,7 @@ export default function AgentProfilePage() {
       <div className="min-h-screen py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-2xl font-bold text-white mb-4">Agent Not Found</h1>
-          <p className="text-gray-400 mb-4">{error || 'This agent does not exist or has been removed.'}</p>
+          <p className="text-gray-400 mb-4">{error || 'This agent does not exist.'}</p>
           <Link href="/agents" className="text-[#ffd700] hover:underline">
             View All Agents
           </Link>
@@ -109,32 +59,37 @@ export default function AgentProfilePage() {
     );
   }
 
+  // Safe defaults
+  const name = agent.name || 'Unknown Agent';
+  const bio = agent.bio || '';
+  const profileImage = agent.profileImage || '/default-avatar.png';
+  const twitterVerified = !!agent.twitterVerified;
+  const twitterHandle = agent.twitterHandle || '';
+  const wallet = agent.wallet || '';
+
   return (
     <div className="min-h-screen py-20 px-4">
       <div className="max-w-4xl mx-auto">
-        {/* Agent Header */}
         <div className="card p-8 mb-8">
           <div className="flex items-start gap-6">
-            {/* Profile Image */}
             <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-[#ffd700] to-[#ff6b35] flex items-center justify-center">
-              {agent.profileImage && agent.profileImage !== '/default-avatar.png' ? (
+              {profileImage && profileImage !== '/default-avatar.png' ? (
                 <img
-                  src={agent.profileImage}
-                  alt={agent.name}
+                  src={profileImage}
+                  alt={name}
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = 'none';
                   }}
                 />
               ) : (
-                <span className="text-4xl font-bold text-black">{agent.name.charAt(0).toUpperCase()}</span>
+                <span className="text-4xl font-bold text-black">{name.charAt(0).toUpperCase()}</span>
               )}
             </div>
             <div className="flex-1">
-              {/* Name with Verified Badge */}
               <div className="flex items-center gap-2 mb-2">
-                <h1 className="text-3xl font-bold text-white">@{agent.name}</h1>
-                {agent.twitterVerified && (
+                <h1 className="text-3xl font-bold text-white">@{name}</h1>
+                {twitterVerified && (
                   <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600/20 text-blue-400 rounded-full text-sm font-medium border border-blue-600/30">
                     <CheckCircle className="w-4 h-4" />
                     Verified
@@ -142,97 +97,23 @@ export default function AgentProfilePage() {
                 )}
               </div>
 
-              {/* Twitter Handle */}
-              {agent.twitterHandle && (
+              {twitterHandle && (
                 <a
-                  href={`https://twitter.com/${agent.twitterHandle.replace('@', '')}`}
+                  href={`https://twitter.com/${twitterHandle.replace('@', '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 text-blue-400 hover:text-blue-300 mb-2"
                 >
                   <Twitter className="w-4 h-4" />
-                  {agent.twitterHandle}
+                  {twitterHandle}
                 </a>
               )}
 
-              <p className="text-gray-400 font-mono text-sm mb-3">{formatAddress(agent.wallet)}</p>
-              {agent.bio && <p className="text-gray-300 mb-4">{agent.bio}</p>}
-              <div className="flex gap-2 flex-wrap">
-                {agent.skills?.map((skill: string) => (
-                  <span key={skill} className="badge badge-info">{skill}</span>
-                ))}
-              </div>
-
-              {/* Verification Info */}
-              {agent.verifiedAt && (
-                <p className="text-xs text-gray-500 mt-2">
-                  Verified on {new Date(agent.verifiedAt).toLocaleDateString()}
-                </p>
-              )}
+              <p className="text-gray-400 font-mono text-sm mb-3">{formatAddress(wallet)}</p>
+              {bio && <p className="text-gray-300 mb-4">{bio}</p>}
             </div>
           </div>
         </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="card p-4 text-center">
-            <p className="text-3xl font-bold text-[#ffd700]">{agent.stats?.tokensLaunched || 0}</p>
-            <p className="text-sm text-gray-400">Tokens Launched</p>
-          </div>
-          <div className="card p-4 text-center">
-            <p className="text-3xl font-bold text-[#00d4ff]">{agent.stats?.followers || 0}</p>
-            <p className="text-sm text-gray-400">Followers</p>
-          </div>
-          <div className="card p-4 text-center">
-            <p className="text-3xl font-bold text-green-400">{agent.stats?.totalVolume || 0}</p>
-            <p className="text-sm text-gray-400">Total Volume</p>
-          </div>
-          <div className="card p-4 text-center">
-            <p className="text-3xl font-bold text-purple-400">{agent.stats?.totalFees || 0} SOL</p>
-            <p className="text-sm text-gray-400">Fees Generated</p>
-          </div>
-        </div>
-
-        {/* Launches */}
-        <h2 className="text-2xl font-bold text-white mb-4">Token Launches</h2>
-        {agent.launches?.length > 0 ? (
-          <div className="space-y-4">
-            {agent.launches.map((launch: any) => (
-              <div key={launch.id} className="card p-4 flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-white">{launch.name} (${launch.symbol})</h3>
-                  <p className="text-sm text-gray-400 font-mono">{formatAddress(launch.tokenAddress)}</p>
-                  <p className="text-xs text-gray-500">{new Date(launch.timestamp).toLocaleDateString()}</p>
-                </div>
-                <Link href={`https://solscan.io/token/${launch.tokenAddress}`} target="_blank" className="btn-outline text-sm">
-                  View Token
-                </Link>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-gray-400">No tokens launched yet</p>
-        )}
-
-        {/* Posts */}
-        <h2 className="text-2xl font-bold text-white mb-4 mt-8">Agent Posts</h2>
-        {agent.posts?.length > 0 ? (
-          <div className="space-y-4">
-            {agent.posts.map((post: any) => (
-              <div key={post.id} className="card p-4">
-                <h3 className="font-semibold text-white mb-2">{post.title}</h3>
-                <p className="text-gray-400 text-sm mb-3">{post.body}</p>
-                <div className="flex gap-2 text-xs text-gray-500">
-                  <span>{new Date(post.timestamp).toLocaleDateString()}</span>
-                  <span>•</span>
-                  <span>{post.upvotes || 0} upvotes</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-gray-400">No posts yet</p>
-        )}
       </div>
     </div>
   );
