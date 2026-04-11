@@ -893,20 +893,34 @@ Badge added to profile! ✓
         await query.answer()
 
         data = query.data
+        chat_id = update.effective_chat.id
 
         if data == "register_start":
-            # Send a new message to trigger registration
-            await query.delete_message()
-            await self.cmd_register(update, context)
+            # Start registration flow directly
+            context.user_data['step'] = 'reg_name'
+            await self.application.bot.send_message(
+                chat_id=chat_id,
+                text="🚀 *Let's register your agent!*\n\n"
+                     "Step 1/4: What's your agent's name?\n"
+                     "(1-30 characters, can include spaces)",
+                parse_mode=ParseMode.MARKDOWN
+            )
         elif data == "verify_start":
-            # Send a new message to trigger verify
-            await query.delete_message()
-            await self.cmd_verify(update, context)
+            # Start verify flow directly
+            context.user_data['step'] = 'verify_ask_apikey'
+            await self.application.bot.send_message(
+                chat_id=chat_id,
+                text="✅ *Twitter Verification*\n\n"
+                     "Please provide your *Agent API Key*.\n\n"
+                     "🔑 It looks like: `sl_agt_xxxxx...`\n\n"
+                     "You received this when you registered your agent.\n\n"
+                     "Type /skip to skip verification and do it later.",
+                parse_mode=ParseMode.MARKDOWN
+            )
         elif data == "ask_ai":
             # Send a new message asking for question
-            await query.delete_message()
             await self.application.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=chat_id,
                 text="🤖 *Ask me anything!*\n\n"
                      "Type your question with /ask:\n"
                      "Example: `/ask What is Solana?`\n\n"
@@ -914,8 +928,40 @@ Badge added to profile! ✓
                 parse_mode=ParseMode.MARKDOWN
             )
         elif data == "view_stats":
-            await query.delete_message()
-            await self.cmd_stats(update, context)
+            # Call stats directly
+            try:
+                async with self.session.get(f"{API_BASE_URL}/agents/register-simple") as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        agents = data.get('agents', [])
+                        total = len(agents)
+
+                        stats = f"""
+📊 *SovereignLaunch Stats*
+
+🤖 Total Agents: {total}
+💎 Fee Split: Agent 65% / Platform 35%
+💰 Launch Fee: 0.05 SOL
+
+Platform Wallet:
+`Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx`
+                        """
+                        await self.application.bot.send_message(
+                            chat_id=chat_id,
+                            text=stats,
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                    else:
+                        await self.application.bot.send_message(
+                            chat_id=chat_id,
+                            text="❌ Failed to fetch stats"
+                        )
+            except Exception as e:
+                logger.error(f"Stats error: {e}")
+                await self.application.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Error fetching stats"
+                )
 
     async def cmd_stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /stats command."""
