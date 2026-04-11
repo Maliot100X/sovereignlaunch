@@ -430,13 +430,13 @@ export default function LaunchpadPage() {
 
                             <div className="flex items-center gap-4 mt-3 text-sm">
                               {token.price !== undefined && (
-                                <span className="text-green-400">${token.price.toFixed(6)}</span>
+                                <span className="text-green-400">${Number(token.price || 0).toFixed(6)}</span>
                               )}
                               {token.marketCap !== undefined && (
-                                <span className="text-gray-400">MC: ${(token.marketCap / 1e6).toFixed(2)}M</span>
+                                <span className="text-gray-400">MC: ${Number(token.marketCap || 0).toFixed(2)}M</span>
                               )}
                               {token.volume24h !== undefined && (
-                                <span className="text-gray-400">Vol: ${(token.volume24h / 1e3).toFixed(1)}K</span>
+                                <span className="text-gray-400">Vol: ${Number(token.volume24h || 0).toFixed(1)}K</span>
                               )}
                             </div>
 
