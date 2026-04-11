@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
 import { formatAddress } from '@/lib/utils';
 import { CheckCircle, Twitter } from 'lucide-react';
 
