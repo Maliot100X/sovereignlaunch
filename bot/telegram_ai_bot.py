@@ -2,6 +2,7 @@
 """
 SovereignLaunch AI Telegram Bot - FIXED VERSION
 Generates REAL verification codes and auto-detects Twitter verification
+Added: /ask command for Fireworks AI chat
 """
 
 import asyncio
@@ -30,8 +31,15 @@ TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID', '-1003960852431')
 API_BASE_URL = os.getenv('API_BASE_URL', 'https://sovereignlaunch.vercel.app/api')
 FIREWORKS_API_KEY = os.getenv('FIREWORKS_API_KEY', 'fw_BreBS5zpPa8t5J7B6NPrPz')
 
+# Fireworks AI Configuration
+FIREWORKS_MODEL = "accounts/fireworks/models/llama-v3p1-405b-instruct"
+FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
+
 # Store pending verifications (in production use Redis)
 pending_verifications = {}  # user_id -> {agent_id, api_key, code, twitter_handle}
+
+# Conversation history for /ask command
+conversation_history = {}  # user_id -> list of messages
 
 class SovereignLaunchAIBot:
     def __init__(self):
@@ -50,6 +58,7 @@ class SovereignLaunchAIBot:
         self.application.add_handler(CommandHandler("launch", self.cmd_launch))
         self.application.add_handler(CommandHandler("verify", self.cmd_verify))
         self.application.add_handler(CommandHandler("stats", self.cmd_stats))
+        self.application.add_handler(CommandHandler("ask", self.cmd_ask))  # NEW: AI chat
 
         # Callback handler
         self.application.add_handler(CallbackQueryHandler(self.on_callback))
@@ -71,6 +80,7 @@ class SovereignLaunchAIBot:
         keyboard = [
             [InlineKeyboardButton("🚀 Register Agent", callback_data="register_start")],
             [InlineKeyboardButton("✅ Verify Twitter", callback_data="verify_start")],
+            [InlineKeyboardButton("🤖 Ask AI", callback_data="ask_ai")],
             [InlineKeyboardButton("📊 Stats", callback_data="view_stats")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -83,6 +93,7 @@ I'm your AI assistant for the agentic token launchpad.
 *What I can do:*
 • 🆓 Register your agent (FREE)
 • ✅ Generate Twitter verification codes
+• 🤖 Chat with AI (/ask)
 • 🚀 Help launch tokens
 • 💰 Check fee structure
 • 📊 Show platform stats
@@ -105,6 +116,9 @@ How can I help you today?
 *Registration:*
 /register - Register new agent (FREE)
 
+*AI Chat:*
+/ask <question> - Chat with Fireworks AI (Kimi K2.5 Turbo)
+
 *Verification:*
 /verify - Get Twitter verification code
 
@@ -125,13 +139,99 @@ How can I help you today?
         """
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
+    async def cmd_ask(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /ask command - Chat with Fireworks AI."""
+        user_id = update.effective_user.id
+        message_text = update.message.text
+
+        # Extract the question (remove /ask command)
+        question = message_text.replace('/ask', '').strip()
+
+        if not question:
+            await update.message.reply_text(
+                "🤖 *Ask me anything!*\n\n"
+                "Usage: `/ask What is Solana?`\n\n"
+                "I'll answer using Fireworks AI (Kimi K2.5 Turbo).",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        # Show typing indicator
+        await update.message.chat.send_action(action="typing")
+
+        try:
+            # Get or create conversation history
+            if user_id not in conversation_history:
+                conversation_history[user_id] = []
+
+            # Add user message to history
+            conversation_history[user_id].append({"role": "user", "content": question})
+
+            # Keep only last 10 messages for context
+            if len(conversation_history[user_id]) > 10:
+                conversation_history[user_id] = conversation_history[user_id][-10:]
+
+            # Prepare system message
+            system_message = {
+                "role": "system",
+                "content": "You are SovereignLaunch AI, a helpful assistant for the SovereignLaunch token launchpad platform on Solana. "
+                           "You help users with questions about blockchain, crypto, token launching, and the platform. "
+                           "Be concise, helpful, and professional. Keep responses under 500 words."
+            }
+
+            # Build messages array
+            messages = [system_message] + conversation_history[user_id]
+
+            # Call Fireworks AI API
+            headers = {
+                "Authorization": f"Bearer {FIREWORKS_API_KEY}",
+                "Content-Type": "application/json"
+            }
+
+            payload = {
+                "model": FIREWORKS_MODEL,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 1000
+            }
+
+            async with self.session.post(
+                FIREWORKS_URL,
+                headers=headers,
+                json=payload
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    ai_response = data['choices'][0]['message']['content']
+
+                    # Add AI response to history
+                    conversation_history[user_id].append({"role": "assistant", "content": ai_response})
+
+                    # Send response
+                    await update.message.reply_text(
+                        f"🤖 *AI Response:*\n\n{ai_response}",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    error_text = await resp.text()
+                    logger.error(f"Fireworks AI error: {error_text}")
+                    await update.message.reply_text(
+                        "❌ Sorry, I couldn't process your question. Please try again."
+                    )
+
+        except Exception as e:
+            logger.error(f"Ask command error: {e}")
+            await update.message.reply_text(
+                "❌ Error connecting to AI. Please try again later."
+            )
+
     async def cmd_register(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /register command."""
         context.user_data['step'] = 'reg_name'
         await update.message.reply_text(
             "🚀 *Let's register your agent!*\n\n"
             "Step 1/4: What's your agent's name?\n"
-            "(1-30 characters, unique)",
+            "(1-30 characters, can include spaces)",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -166,10 +266,20 @@ How can I help you today?
         # Registration flow
         if step == 'reg_name':
             context.user_data['name'] = message
-            context.user_data['step'] = 'reg_wallet'
+            context.user_data['step'] = 'reg_bio'
             await update.message.reply_text(
                 f"✅ Name: {message}\n\n"
-                "Step 2/4: Your Solana wallet address\n"
+                "Step 2/4: Write a short bio for your agent\n"
+                "(What does your agent do? 1-2 sentences)"
+            )
+            return
+
+        elif step == 'reg_bio':
+            context.user_data['bio'] = message
+            context.user_data['step'] = 'reg_wallet'
+            await update.message.reply_text(
+                f"✅ Bio saved!\n\n"
+                "Step 3/4: Your Solana wallet address\n"
                 "(where you receive 65% fee earnings)"
             )
             return
@@ -179,21 +289,11 @@ How can I help you today?
             context.user_data['step'] = 'reg_email'
             await update.message.reply_text(
                 f"✅ Wallet: {message[:10]}...\n\n"
-                "Step 3/4: Your email for notifications"
+                "Step 4/4: Your email for notifications"
             )
             return
 
         elif step == 'reg_email':
-            context.user_data['email'] = message
-            context.user_data['step'] = 'reg_bio'
-            await update.message.reply_text(
-                f"✅ Email: {message}\n\n"
-                "Step 4/4: Describe your agent (1-2 sentences)\n"
-                "Example: AI trading agent for Solana"
-            )
-            return
-
-        elif step == 'reg_bio':
             await self.complete_registration(update, context, message)
             return
 
@@ -212,30 +312,36 @@ How can I help you today?
             await self.submit_tweet_url(update, context, message)
             return
 
-        # Default AI response
+        # Default AI response for general messages
         await update.message.reply_text(
             "🤖 I'm SovereignLaunch Bot!\n\n"
             "Commands:\n"
+            "/ask - Chat with AI\n"
             "/register - Create agent (FREE)\n"
             "/verify - Get Twitter verification\n"
             "/stats - Platform stats\n"
             "/help - All commands"
         )
 
-    async def complete_registration(self, update: Update, context: ContextTypes.DEFAULT_TYPE, bio: str):
+    async def complete_registration(self, update: Update, context: ContextTypes.DEFAULT_TYPE, email: str):
         """Complete agent registration."""
         try:
+            context.user_data['email'] = email
+
             async with self.session.post(
                 f"{API_BASE_URL}/agents/register-simple",
                 json={
                     "name": context.user_data['name'],
                     "wallet": context.user_data['wallet'],
                     "email": context.user_data['email'],
-                    "bio": bio
+                    "bio": context.user_data.get('bio', '')
                 }
             ) as resp:
+                response_text = await resp.text()
+                logger.info(f"Registration response: {resp.status} - {response_text[:200]}")
+
                 if resp.status == 200:
-                    data = await resp.json()
+                    data = json.loads(response_text)
                     api_key = data.get('apiKey')
                     agent_id = data.get('agentId')
 
@@ -268,12 +374,17 @@ Welcome! 🚀
                     # Notify channel
                     await self.notify_channel_new_agent(context.user_data['name'], agent_id)
                 else:
-                    error = await resp.text()
-                    await update.message.reply_text(f"❌ Registration failed: {error}")
+                    try:
+                        error_data = json.loads(response_text)
+                        error_msg = error_data.get('error', response_text)
+                    except:
+                        error_msg = response_text[:200]
+
+                    await update.message.reply_text(f"❌ Registration failed:\n{error_msg}\n\nPlease try again with /register")
 
         except Exception as e:
             logger.error(f"Registration error: {e}")
-            await update.message.reply_text("❌ Error during registration. Please try again.")
+            await update.message.reply_text(f"❌ Error during registration: {str(e)[:200]}\n\nPlease try again with /register")
 
     async def generate_verification_code(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Generate REAL verification code via API."""
@@ -283,8 +394,11 @@ Welcome! 🚀
                 headers={'x-api-key': context.user_data['api_key']},
                 json={"twitterHandle": context.user_data['twitter_handle']}
             ) as resp:
+                response_text = await resp.text()
+                logger.info(f"Verify request response: {resp.status} - {response_text[:200]}")
+
                 if resp.status == 200:
-                    data = await resp.json()
+                    data = json.loads(response_text)
                     code = data.get('verificationCode')
                     agent_id = data.get('agentId')
 
@@ -329,7 +443,7 @@ https://sovereignlaunch.vercel.app/agents/{agent_id}
 
                 elif resp.status == 409:
                     # Already has pending verification
-                    data = await resp.json()
+                    data = json.loads(response_text)
                     code = data.get('verificationCode')
                     agent_id = data.get('agentId')
 
@@ -354,12 +468,16 @@ Reply with your tweet URL when posted!
                     """
                     await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
                 else:
-                    error = await resp.text()
-                    await update.message.reply_text(f"❌ Failed to generate code: {error}")
+                    try:
+                        error_data = json.loads(response_text)
+                        error_msg = error_data.get('error', response_text)
+                    except:
+                        error_msg = response_text[:200]
+                    await update.message.reply_text(f"❌ Failed to generate code: {error_msg}")
 
         except Exception as e:
             logger.error(f"Generate code error: {e}")
-            await update.message.reply_text("❌ Error generating code. Try again.")
+            await update.message.reply_text(f"❌ Error generating code: {str(e)[:200]}. Try again.")
 
     async def submit_tweet_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tweet_url: str):
         """Submit tweet URL for verification."""
@@ -371,8 +489,11 @@ Reply with your tweet URL when posted!
                 headers={'x-api-key': context.user_data['api_key']},
                 json={"verificationCode": code, "tweetUrl": tweet_url}
             ) as resp:
+                response_text = await resp.text()
+                logger.info(f"Verify submit response: {resp.status} - {response_text[:200]}")
+
                 if resp.status == 200:
-                    data = await resp.json()
+                    data = json.loads(response_text)
 
                     if data.get('verified'):
                         context.user_data['step'] = None
@@ -398,12 +519,16 @@ You're now a verified SovereignLaunch agent! 👑✓
                     else:
                         await update.message.reply_text("❌ Verification failed. Check tweet URL.")
                 else:
-                    error = await resp.text()
-                    await update.message.reply_text(f"❌ Submit failed: {error}")
+                    try:
+                        error_data = json.loads(response_text)
+                        error_msg = error_data.get('error', response_text)
+                    except:
+                        error_msg = response_text[:200]
+                    await update.message.reply_text(f"❌ Submit failed: {error_msg}")
 
         except Exception as e:
             logger.error(f"Submit error: {e}")
-            await update.message.reply_text("❌ Error submitting. Try again.")
+            await update.message.reply_text(f"❌ Error submitting: {str(e)[:200]}. Try again.")
 
     async def auto_verify_checker(self):
         """Background task to auto-check Twitter verification."""
@@ -512,6 +637,13 @@ Badge added to profile! ✓
             await self.cmd_register(update, context)
         elif data == "verify_start":
             await self.cmd_verify(update, context)
+        elif data == "ask_ai":
+            await query.edit_message_text(
+                "🤖 *Ask me anything!*\n\n"
+                "Use: `/ask Your question here`\n\n"
+                "Example: `/ask What is Solana?`",
+                parse_mode=ParseMode.MARKDOWN
+            )
         elif data == "view_stats":
             await self.cmd_stats(update, context)
 
@@ -531,7 +663,8 @@ Badge added to profile! ✓
 💎 Fee Split: Agent 65% / Platform 35%
 💰 Launch Fee: 0.05 SOL
 
-Platform Wallet:\n`Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx`
+Platform Wallet:
+`Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx`
                     """
 
                     await update.message.reply_text(stats, parse_mode=ParseMode.MARKDOWN)

@@ -18,10 +18,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate name format (alphanumeric + underscore, 1-120 chars)
-    if (!/^[a-zA-Z0-9_]{1,120}$/.test(name)) {
+    // Validate name format (alphanumeric + spaces + common chars, 1-120 chars)
+    // Allow: letters, numbers, spaces, underscores, hyphens
+    if (!/^[a-zA-Z0-9_\-\s]{1,120}$/.test(name)) {
       return NextResponse.json(
-        { error: 'Name must be 1-120 alphanumeric characters or underscores' },
+        { error: 'Name must be 1-120 characters (letters, numbers, spaces, underscores, hyphens only)' },
         { status: 400 }
       );
     }
