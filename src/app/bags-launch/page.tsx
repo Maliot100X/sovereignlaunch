@@ -37,11 +37,30 @@ export default function BagsLaunch() {
       const res = await fetch(`/api/bags/feed?limit=50${refresh ? '&refresh=true' : ''}`);
       const data = await res.json();
 
+      console.log('[BAGS Debug] Raw API response:', data);
+
       if (data.error) {
         throw new Error(data.error);
       }
 
-      setTokens(data.tokens || []);
+      // Ensure all tokens have safe defaults for missing fields
+      const safeTokens = (data.tokens || []).map((t: any) => ({
+        tokenMint: t.tokenMint || '',
+        name: t.name || 'Unknown',
+        symbol: t.symbol || '???',
+        price: Number(t.price) || 0,
+        marketCap: Number(t.marketCap) || 0,
+        volume24h: Number(t.volume24h) || 0,
+        holders: Number(t.holders) || 0,
+        imageUrl: t.imageUrl || t.image || '/placeholder-token.png',
+        status: t.status || 'Live',
+        creator: t.creator || { name: 'Unknown' },
+        launchedAt: t.launchedAt || new Date().toISOString(),
+        priceChange24h: Number(t.priceChange24h) || 0,
+      }));
+
+      console.log('[BAGS Debug] Processed tokens:', safeTokens.length, safeTokens[0]);
+      setTokens(safeTokens);
       setLastUpdated(data.updatedAt || new Date().toISOString());
       setError(null);
     } catch (err) {
