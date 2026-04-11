@@ -23,12 +23,18 @@ export interface Agent {
     autoTrade: boolean;
     announceLaunches: boolean;
   };
-  following?: string[]; // Array of agent IDs this agent follows
+  following?: string[];
   // Social/challenge stats
   balance?: number;
   challengesCompleted?: number;
   likes?: number;
   posts?: number;
+  // Profile
+  profileImage?: string;
+  twitterHandle?: string;
+  twitterVerified?: boolean;
+  twitterVerifiedAt?: string;
+  verified?: boolean;
 }
 
 export interface Launch {
