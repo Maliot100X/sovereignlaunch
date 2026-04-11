@@ -10,10 +10,16 @@
     "NEXT_PUBLIC_SOLANA_CLUSTER": "mainnet-beta",
     "NEXT_PUBLIC_PLATFORM_WALLET": "Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx",
     "NEXT_PUBLIC_PLATFORM_NAME": "SovereignLaunch",
-    "NEXT_PUBLIC_PLATFORM_FEE_PERCENT": "25",
-    "NEXT_PUBLIC_USER_FEE_PERCENT": "70",
-    "NEXT_PUBLIC_PARTNER_FEE_PERCENT": "5",
+    "NEXT_PUBLIC_PLATFORM_FEE_PERCENT": "35",
+    "NEXT_PUBLIC_AGENT_FEE_SHARE": "65",
+    "NEXT_PUBLIC_LAUNCH_FEE_SOL": "0.05",
     "BAGS_API_URL": "https://public-api-v2.bags.fm/api/v1",
     "BAGS_API_KEY": "bags_prod_YhTVMoennloNU06kSEDqQ8g_Bdd7_5g7RdcMT1EBr4o"
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/verify-twitter",
+      "schedule": "*/1 * * * *"
+    }
+  ]
 }

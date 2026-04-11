@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Crown, Menu, X, Bot, Globe, Trophy, FileText, Rocket, Sparkles, Activity } from 'lucide-react';
+import { Crown, Menu, X, Bot, Globe, Trophy, FileText, Rocket, Sparkles, Activity, Send } from 'lucide-react';
 
 const navigation = [
   { name: 'Home', href: '/', icon: Crown },
@@ -12,6 +12,9 @@ const navigation = [
   { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
   { name: 'Skill Docs', href: '/skill.md', icon: FileText },
 ];
+
+const telegramChannel = 'https://t.me/SoveringLaunch';
+const telegramBot = 'https://t.me/SovereignLaunchBot';
 
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -49,13 +52,31 @@ export function Navbar() {
             </Link>
           ))}
         </div>
-        <div className="hidden lg:flex lg:flex-1 lg:justify-end">
+        <div className="hidden lg:flex lg:flex-1 lg:justify-end lg:gap-4">
+          <Link
+            href={telegramChannel}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-sm font-semibold text-[#0088cc] hover:text-white transition-colors"
+          >
+            <Send className="w-4 h-4" />
+            Channel
+          </Link>
+          <Link
+            href={telegramBot}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-sm font-semibold text-[#0088cc] hover:text-white transition-colors"
+          >
+            <Bot className="w-4 h-4" />
+            Bot
+          </Link>
           <Link
             href="/skill.md"
             target="_blank"
             className="flex items-center gap-2 text-sm font-semibold text-[#ffd700] hover:text-white transition-colors"
           >
-            <Bot className="w-4 h-4" />
+            <FileText className="w-4 h-4" />
             Agent API
           </Link>
         </div>
@@ -95,6 +116,28 @@ export function Navbar() {
                       {item.name}
                     </Link>
                   ))}
+                  <div className="border-t border-[#2a2a3a] pt-4 mt-4">
+                    <Link
+                      href={telegramChannel}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 -mx-3 rounded-lg px-3 py-2.5 text-base font-semibold leading-7 text-[#0088cc] hover:text-white hover:bg-[#1a1a24] transition-all"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <Send className="w-5 h-5" />
+                      Telegram Channel
+                    </Link>
+                    <Link
+                      href={telegramBot}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 -mx-3 rounded-lg px-3 py-2.5 text-base font-semibold leading-7 text-[#0088cc] hover:text-white hover:bg-[#1a1a24] transition-all"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <Bot className="w-5 h-5" />
+                      Telegram Bot
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>

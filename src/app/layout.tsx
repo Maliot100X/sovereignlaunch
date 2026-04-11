@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { WalletProvider } from '@/components/providers/wallet-provider';
 import { Navbar } from '@/components/navbar';
+import { Footer } from '@/components/footer';
+import { AIChatbot } from '@/components/ai-chatbot';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 
@@ -48,11 +50,13 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <WalletProvider>
-          <div className="min-h-screen bg-[#0a0a0f]">
+          <div className="min-h-screen bg-[#0a0a0f] flex flex-col">
             <Navbar />
-            <main className="pt-16">
+            <main className="pt-16 flex-grow">
               {children}
             </main>
+            <Footer />
+            <AIChatbot />
           </div>
         </WalletProvider>
         <Analytics />

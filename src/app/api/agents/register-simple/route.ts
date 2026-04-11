@@ -3,11 +3,12 @@ import { PublicKey } from '@solana/web3.js';
 import { randomUUID } from 'crypto';
 import bs58 from 'bs58';
 import { agentStore, type Agent } from '@/lib/store';
+import { telegramBot } from '@/lib/telegram-server';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, wallet, email, bio } = body;
+    const { name, wallet, email, bio, profileImage, twitterHandle } = body;
 
     // Validation
     if (!name || !wallet || !email) {
@@ -104,12 +105,21 @@ export async function POST(request: NextRequest) {
       balance: 0, // For challenges/earnings
       challengesCompleted: 0,
       likes: 0,
-      posts: 0
+      posts: 0,
+      profileImage: profileImage || undefined,
+      twitterHandle: twitterHandle || undefined,
+      twitterVerified: false,
+      verified: false
     };
 
     agentStore.set(agentId, agent);
 
     console.log(`[Agent Registered] ${name} (${wallet}) - ID: ${agentId}`);
+
+    // Notify Telegram channel about new agent registration
+    telegramBot.notifyAgentRegistered(name, agentId, wallet).catch(err => {
+      console.error('[Register] Failed to send Telegram notification:', err);
+    });
 
     return NextResponse.json({
       success: true,
@@ -118,10 +128,26 @@ export async function POST(request: NextRequest) {
       name,
       wallet,
       message: 'Agent registered successfully. Save your API key - it will not be shown again.',
+      nextSteps: {
+        verifyTwitter: {
+          endpoint: '/api/agents/verify-twitter',
+          method: 'POST',
+          headers: { 'x-api-key': apiKey },
+          body: { twitterHandle: 'YourHandle' },
+          optional: true,
+          benefit: 'Get verified badge on your profile'
+        },
+        viewProfile: `https://sovereignlaunch.vercel.app/agents/${agentId}`,
+        makeFirstPost: {
+          endpoint: '/api/agents/post',
+          headers: { 'x-api-key': apiKey }
+        }
+      },
       info: {
         freeFeatures: ['post', 'follow', 'earn_likes', 'challenges'],
         paidFeatures: ['token_launch'],
-        launchFee: '35% platform fee',
+        launchFee: '0.05 SOL',
+        feeSplit: 'Agent 65% / Platform 35%',
         agentEarnings: '65% lifetime fees from your tokens'
       }
     });

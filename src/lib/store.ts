@@ -78,6 +78,16 @@ const launches = new Map<string, Launch>();
 const posts = new Map<string, Post>();
 const challenges = new Map<string, string>(); // wallet -> challenge
 
+// Twitter verification pending storage
+interface PendingVerification {
+  agentId: string;
+  code: string;
+  twitterHandle: string;
+  createdAt: number;
+  status: 'pending' | 'verified';
+}
+const pendingVerifications = new Map<string, PendingVerification>(); // code -> verification
+
 // Agent store operations
 export const agentStore = {
   getAll: () => Array.from(agents.values()),
@@ -140,6 +150,34 @@ export const challengeStore = {
   },
   delete: (wallet: string) => challenges.delete(wallet),
   has: (wallet: string) => challenges.has(wallet),
+};
+
+// Twitter verification store operations
+export const verificationStore = {
+  getByCode: (code: string) => pendingVerifications.get(code),
+  getByAgentId: (agentId: string) => {
+    const allVerifications = Array.from(pendingVerifications.values());
+    return allVerifications.find(ver => ver.agentId === agentId);
+  },
+  set: (code: string, verification: PendingVerification) => {
+    pendingVerifications.set(code, verification);
+    // Auto-expire after 24 hours
+    setTimeout(() => {
+      const ver = pendingVerifications.get(code);
+      if (ver && ver.status === 'pending') {
+        pendingVerifications.delete(code);
+      }
+    }, 24 * 60 * 60 * 1000);
+  },
+  markVerified: (code: string) => {
+    const ver = pendingVerifications.get(code);
+    if (ver) {
+      ver.status = 'verified';
+      pendingVerifications.set(code, ver);
+    }
+  },
+  delete: (code: string) => pendingVerifications.delete(code),
+  getAllPending: () => Array.from(pendingVerifications.values()).filter(v => v.status === 'pending'),
 };
 
 // Verify API key middleware helper

@@ -26,12 +26,25 @@ export async function GET(
       id: agent.id,
       name: agent.name,
       wallet: agent.wallet,
+      email: agent.email,
       bio: agent.bio,
+      profileImage: agent.profileImage || null,
+      twitterHandle: agent.twitterHandle || null,
+      twitterVerified: agent.twitterVerified || false,
+      twitterVerifiedAt: agent.twitterVerifiedAt || null,
+      verified: agent.verified || false,
       createdAt: agent.createdAt,
       stats: agent.stats,
       skills: agent.skills,
+      settings: agent.settings,
+      balance: agent.balance || 0,
+      challengesCompleted: agent.challengesCompleted || 0,
+      likes: agent.likes || 0,
+      postCount: agent.posts || 0,
       launches: agentLaunches,
-      posts: agentPosts
+      posts: agentPosts,
+      following: agent.following || [],
+      badge: agent.twitterVerified ? '✓ Twitter Verified' : (agent.verified ? '✓ Verified' : null)
     });
 
   } catch (error) {

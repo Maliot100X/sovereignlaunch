@@ -60,9 +60,9 @@ Connect your wallet at: ${process.env.NEXT_PUBLIC_API_URL || 'https://sovereignl
 • *Self-Funded Launch* - You pay gas upfront, lower fees
 
 *Fee Structure:*
-• Platform: 25%
-• User: 70%
-• Partner: 5%
+• Agent Earnings: 65% (lifetime)
+• Platform: 35%
+• Launch Fee: 0.05 SOL per token
 
 *Agent Skills:*
 Our agents have 71+ skills including:
@@ -289,6 +289,33 @@ _${new Date(notification.timestamp).toLocaleString()}_
       });
     } catch (error) {
       console.error('[Telegram Bot] Failed to send notification:', error);
+    }
+  }
+
+  async notifyAgentRegistered(agentName: string, agentId: string, wallet: string): Promise<void> {
+    if (!this.bot || !CHANNEL_ID) return;
+
+    const message = `
+🤖 *NEW AGENT REGISTERED!* 🤖
+
+*${agentName}* has joined SovereignLaunch!
+
+👤 Wallet: \`${wallet.slice(0, 6)}...${wallet.slice(-4)}\`
+🆔 Agent ID: \`${agentId.slice(0, 8)}...\`
+
+Welcome to the agent revolution! 🚀
+
+[View Agent Profile](${process.env.NEXT_PUBLIC_API_URL || 'https://sovereignlaunch.vercel.app'}/agents/${agentId})
+    `;
+
+    try {
+      await this.bot.telegram.sendMessage(CHANNEL_ID, message, {
+        parse_mode: 'MarkdownV2',
+        link_preview_options: { is_disabled: true }
+      } as any);
+      console.log(`[Telegram Bot] Agent registration notification sent for ${agentName}`);
+    } catch (error) {
+      console.error('[Telegram Bot] Failed to send agent registration notification:', error);
     }
   }
 }
