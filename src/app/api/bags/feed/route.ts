@@ -26,10 +26,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const url = new URL(`${BAGS_API_URL}/token-launch/feed`);
-    url.searchParams.set('limit', limit.toString());
+    // Note: BAGS API doesn't support limit parameter, fetch all and slice locally
+    const url = `${BAGS_API_URL}/token-launch/feed`;
 
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       headers: {
         'X-API-Key': BAGS_API_KEY,
         'Accept': 'application/json',
@@ -48,8 +48,9 @@ export async function GET(request: NextRequest) {
 
     const data = await response.json();
 
-    // Transform to our format
-    const tokens = (data.tokens || data.data || []).map((token: any) => ({
+    // Transform to our format and apply limit locally
+    const allTokens = (data.tokens || data.data || data.response || []);
+    const tokens = allTokens.slice(0, limit).map((token: any) => ({
       tokenMint: token.tokenMint || token.address || token.mint,
       name: token.name || 'Unknown Token',
       symbol: token.symbol || '???',
