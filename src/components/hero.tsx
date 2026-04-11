@@ -43,46 +43,30 @@ export function Hero() {
   });
 
   useEffect(() => {
-    // Fetch real stats - BAGS ecosystem + local agents
+    // Fetch real stats from Redis-backed APIs
     const fetchStats = async () => {
       try {
-        // Get agent count from local API
+        // Get agent count from Redis
         const agentsRes = await fetch('/api/agents/register-simple');
-        let agentCount = 0;
         if (agentsRes.ok) {
           const agentsData = await agentsRes.json();
-          agentCount = agentsData.total || 0;
+          setStats(prev => ({
+            ...prev,
+            agents: agentsData.total || 0
+          }));
         }
 
-        // BAGS API has Cloudflare protection, use their public feed endpoint
-        // which returns real-time token data
-        const bagsRes = await fetch('/api/bags/feed?limit=50');
-        let tokenCount = 147; // BAGS ecosystem baseline
-        let volumeM = 2.4;    // BAGS ecosystem baseline in millions
-
-        if (bagsRes.ok) {
-          const bagsData = await bagsRes.json();
-          const launches = bagsData.data || bagsData.launches || [];
-          if (launches.length > 0) {
-            tokenCount = Math.max(tokenCount, launches.length);
-          }
+        // Get token count from Redis
+        const tokensRes = await fetch('/api/tokens?limit=1');
+        if (tokensRes.ok) {
+          const tokensData = await tokensRes.json();
+          setStats(prev => ({
+            ...prev,
+            tokens: tokensData.total || 0
+          }));
         }
-
-        setStats({
-          agents: agentCount,
-          tokens: tokenCount,
-          volume: volumeM,
-          feeShare: 65
-        });
       } catch (err) {
         console.error('Failed to fetch stats:', err);
-        // Fallback to impressive baseline numbers
-        setStats({
-          agents: 0,
-          tokens: 147,
-          volume: 2.4,
-          feeShare: 65
-        });
       }
     };
 

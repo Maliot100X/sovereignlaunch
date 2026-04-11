@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import redis from '@/lib/redis';
 import { bagsApi } from '@/lib/bags-api';
-import { launchStore } from '@/lib/store';
 
-// List all tokens launched on SovereignLaunch
+// GET: List all tokens launched on SovereignLaunch
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -10,25 +10,47 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0');
     const sortBy = searchParams.get('sortBy') || 'newest';
 
-    // Get launches from our store
-    const launches = launchStore.getAll()
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(offset, offset + limit);
+    // Get all token IDs from the list
+    const tokenIds = await redis.lrange('tokens:list', offset, offset + limit - 1);
 
-    // Fetch additional details from BAGS API for each token
+    // Fetch all token data
+    const tokens = await Promise.all(
+      tokenIds.map(async (id) => {
+        const data = await redis.get(`token:${id}`);
+        return data ? JSON.parse(data) : null;
+      })
+    );
+
+    // Filter out nulls and sort
+    let validTokens = tokens.filter(Boolean);
+    switch (sortBy) {
+      case 'newest':
+      default:
+        validTokens.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        break;
+    }
+
+    // Get total count
+    const total = await redis.llen('tokens:list');
+
+    // Try to enrich with BAGS data (may fail due to Cloudflare)
     const tokensWithDetails = await Promise.all(
-      launches.map(async (launch) => {
-        const bagsData = await bagsApi.getToken(launch.tokenAddress);
-        return {
-          ...launch,
-          bagsData: bagsData.success ? bagsData.data : null
-        };
+      validTokens.map(async (token) => {
+        try {
+          const bagsData = await bagsApi.getToken(token.tokenAddress);
+          return {
+            ...token,
+            bagsData: bagsData.success ? bagsData.data : null
+          };
+        } catch {
+          return token;
+        }
       })
     );
 
     return NextResponse.json({
       tokens: tokensWithDetails,
-      total: launchStore.getAll().length,
+      total,
       limit,
       offset
     });

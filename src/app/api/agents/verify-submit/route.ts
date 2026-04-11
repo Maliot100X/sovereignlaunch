@@ -1,20 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { agentStore, verificationStore, verifyApiKey } from '@/lib/store';
+import redis from '@/lib/redis';
 
 // POST: Submit tweet URL for manual verification
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
-    const auth = verifyApiKey(apiKey || '');
 
-    if (!auth.valid || !auth.agent) {
+    if (!apiKey) {
       return NextResponse.json(
-        { error: auth.error || 'Invalid API key' },
+        { error: 'API key required' },
         { status: 401 }
       );
     }
 
-    const agent = auth.agent;
+    // Find agent by API key
+    const agentId = await redis.get(`agent:apikey:${apiKey}`);
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401 }
+      );
+    }
+
+    // Get agent data
+    const agentData = await redis.get(`agent:${agentId}`);
+    if (!agentData) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
+      );
+    }
+
+    const agent = JSON.parse(agentData);
     const body = await request.json();
     const { verificationCode, tweetUrl } = body;
 
@@ -36,18 +53,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find the verification
-    const verification = verificationStore.getByCode(verificationCode);
+    // Find the verification code in Redis
+    const verifyKey = `verify:${agentId}:${verificationCode}`;
+    const verifyData = await redis.get(verifyKey);
 
-    if (!verification) {
+    if (!verifyData) {
       return NextResponse.json(
         { error: 'Invalid or expired verification code' },
         { status: 404 }
       );
     }
 
+    const verification = JSON.parse(verifyData);
+
     // Verify this code belongs to this agent
-    if (verification.agentId !== agent.id) {
+    if (verification.agentId !== agentId) {
       return NextResponse.json(
         { error: 'Verification code does not match this agent' },
         { status: 403 }
@@ -63,14 +83,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Mark as verified
-    verificationStore.markVerified(verificationCode);
+    // Mark agent as verified
+    agent.twitterVerified = true;
+    agent.verifiedAt = new Date().toISOString();
+    agent.tweetUrl = tweetUrl;
+    await redis.set(`agent:${agentId}`, JSON.stringify(agent));
 
-    // Update agent
-    (agent as any).twitterVerified = true;
-    (agent as any).twitterVerifiedAt = new Date().toISOString();
-    (agent as any).twitterUrl = tweetUrl;
-    agentStore.set(agent.id, agent);
+    // Delete verification code
+    await redis.del(verifyKey);
 
     // Send Telegram notification
     try {

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { bagsApi } from '@/lib/bags-api';
+import redis from '@/lib/redis';
 import { telegramBot } from '@/lib/telegram-server';
+import { bagsApi } from '@/lib/bags-api';
 import { randomUUID } from 'crypto';
-import { agentStore, launchStore, verifyApiKey, type Launch } from '@/lib/store';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 const PLATFORM_WALLET = 'Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx';
-const LAUNCH_FEE_SOL = 0.05; // 0.05 SOL platform fee to launch
+const LAUNCH_FEE_SOL = 0.05;
 
 // Verify payment was made
 async function verifyLaunchPayment(agentWallet: string, txHash?: string): Promise<{ verified: boolean; txHash?: string; error?: string }> {
@@ -16,7 +16,6 @@ async function verifyLaunchPayment(agentWallet: string, txHash?: string): Promis
     );
 
     if (txHash) {
-      // Verify specific transaction
       const tx = await connection.getTransaction(txHash, { commitment: 'confirmed' });
       if (!tx || !tx.meta) {
         return { verified: false, error: 'Transaction not found' };
@@ -79,27 +78,37 @@ async function verifyLaunchPayment(agentWallet: string, txHash?: string): Promis
   }
 }
 
-// Agent token launch endpoint
+// POST: Launch token via BAGS API
 export async function POST(request: NextRequest) {
   try {
-    // Verify agent
     const apiKey = request.headers.get('x-api-key');
-    const auth = verifyApiKey(apiKey || '');
-    if (!auth.valid) {
+
+    if (!apiKey) {
       return NextResponse.json(
-        { error: auth.error },
+        { error: 'API key required' },
         { status: 401 }
       );
     }
 
-    if (!auth.agent) {
+    // Find agent by API key
+    const agentId = await redis.get(`agent:apikey:${apiKey}`);
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401 }
+      );
+    }
+
+    // Get agent data
+    const agentData = await redis.get(`agent:${agentId}`);
+    if (!agentData) {
       return NextResponse.json(
         { error: 'Agent not found' },
-        { status: 401 }
+        { status: 404 }
       );
     }
 
-    const agent = auth.agent;
+    const agent = JSON.parse(agentData);
     const body = await request.json();
 
     const {
@@ -111,7 +120,7 @@ export async function POST(request: NextRequest) {
       initialBuyLamports = 0,
       social,
       announce = true,
-      txHash // Optional: specific payment transaction
+      txHash
     } = body;
 
     // Validation
@@ -129,7 +138,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify payment first
+    // Verify payment
     const paymentCheck = await verifyLaunchPayment(agent.wallet, txHash);
     if (!paymentCheck.verified) {
       return NextResponse.json({
@@ -140,10 +149,10 @@ export async function POST(request: NextRequest) {
           platformWallet: PLATFORM_WALLET,
           message: `Send ${LAUNCH_FEE_SOL} SOL to ${PLATFORM_WALLET} before launching`
         }
-      }, { status: 402 }); // 402 Payment Required
+      }, { status: 402 });
     }
 
-    // Launch token via BAGS API with 65/35 fee split
+    // Launch token via BAGS API
     const launchResult = await bagsApi.launchToken({
       name,
       symbol: symbol.toUpperCase(),
@@ -155,7 +164,7 @@ export async function POST(request: NextRequest) {
       initialLiquidity: (initialBuyLamports / 1e9).toString(),
       creatorWallet: agent.wallet,
       socialLinks: social,
-      agentFeeShare: 6500, // 65% to agent
+      agentFeeShare: 6500,
       platformWallet: PLATFORM_WALLET
     });
 
@@ -166,11 +175,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Record launch
+    // Record launch in Redis
     const launchId = randomUUID();
-    const launch: Launch = {
+    const launch = {
       id: launchId,
-      agentId: agent.id,
+      agentId,
       agentName: agent.name,
       tokenAddress: launchResult.tokenAddress!,
       transactionSignature: launchResult.transactionSignature!,
@@ -182,13 +191,18 @@ export async function POST(request: NextRequest) {
       announced: false
     };
 
-    launchStore.set(launchId, launch);
+    await redis.set(`token:${launchId}`, JSON.stringify(launch));
+    await redis.set(`token:mint:${launchResult.tokenAddress}`, launchId);
+    await redis.lpush('tokens:list', launchId);
+    await redis.sadd(`agent:tokens:${agentId}`, launchId);
 
     // Update agent stats
-    agent.stats.tokensLaunched += 1;
+    agent.tokensLaunched = (agent.tokensLaunched || 0) + 1;
+    agent.stats.tokensLaunched = agent.tokensLaunched;
+    await redis.set(`agent:${agentId}`, JSON.stringify(agent));
 
-    // Announce on social platforms if enabled
-    if (announce && agent.settings.announceLaunches) {
+    // Announce on Telegram
+    if (announce) {
       try {
         await telegramBot.notifyLaunch(
           launchResult.tokenAddress!,
@@ -196,11 +210,10 @@ export async function POST(request: NextRequest) {
           name,
           agent.wallet
         );
-
         launch.announced = true;
-        launchStore.set(launchId, launch);
+        await redis.set(`token:${launchId}`, JSON.stringify(launch));
       } catch (error) {
-        console.error('Error sending announcements:', error);
+        console.error('Error sending Telegram notification:', error);
       }
     }
 
@@ -232,27 +245,49 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Get agent's launches
+// GET: Get agent's launches
 export async function GET(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
-    const auth = verifyApiKey(apiKey || '');
-    if (!auth.valid) {
+
+    if (!apiKey) {
       return NextResponse.json(
-        { error: auth.error },
+        { error: 'API key required' },
         { status: 401 }
       );
     }
 
-    if (!auth.agent) {
+    // Find agent by API key
+    const agentId = await redis.get(`agent:apikey:${apiKey}`);
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401 }
+      );
+    }
+
+    // Get agent data
+    const agentData = await redis.get(`agent:${agentId}`);
+    if (!agentData) {
       return NextResponse.json(
         { error: 'Agent not found' },
-        { status: 401 }
+        { status: 404 }
       );
     }
 
-    const agent = auth.agent;
-    const agentLaunches = launchStore.getByAgentId(agent.id);
+    const agent = JSON.parse(agentData);
+
+    // Get agent's launches
+    const tokenIds = await redis.smembers(`agent:tokens:${agentId}`);
+    const launches = await Promise.all(
+      tokenIds.map(async (id) => {
+        const data = await redis.get(`token:${id}`);
+        return data ? JSON.parse(data) : null;
+      })
+    );
+
+    // Sort by timestamp desc
+    launches.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     return NextResponse.json({
       agent: {
@@ -261,7 +296,7 @@ export async function GET(request: NextRequest) {
         wallet: agent.wallet,
         stats: agent.stats
       },
-      launches: agentLaunches,
+      launches: launches.filter(Boolean),
       launchFee: {
         amount: LAUNCH_FEE_SOL,
         platformWallet: PLATFORM_WALLET

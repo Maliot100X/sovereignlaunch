@@ -1,32 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { agentStore, verificationStore, verifyApiKey } from '@/lib/store';
+import { randomBytes } from 'crypto';
+import redis from '@/lib/redis';
 
-// Generate verification code in format VERIFY-XXXXXX
-function generateVerificationCode(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `VERIFY-${code}`;
+// Generate verification code: VERIFY-XXXXXNN
+function generateCode(): string {
+  const letters = randomBytes(3).toString('base64url').toUpperCase().slice(0, 5);
+  const numbers = Math.floor(10 + Math.random() * 90);
+  return `VERIFY-${letters}${numbers}`;
 }
 
-// POST: Request verification code
+// POST: Request Twitter verification code
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
-    const auth = verifyApiKey(apiKey || '');
 
-    if (!auth.valid || !auth.agent) {
+    if (!apiKey) {
       return NextResponse.json(
-        { error: auth.error || 'Invalid API key' },
+        { error: 'API key required in x-api-key header' },
         { status: 401 }
       );
     }
 
-    const agent = auth.agent;
+    // Find agent by API key
+    const agentId = await redis.get(`agent:apikey:${apiKey}`);
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401 }
+      );
+    }
+
+    // Get agent data
+    const agentData = await redis.get(`agent:${agentId}`);
+    if (!agentData) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
+      );
+    }
+
+    const agent = JSON.parse(agentData);
     const body = await request.json();
     const { twitterHandle } = body;
+
+    if (!twitterHandle) {
+      return NextResponse.json(
+        { error: 'twitterHandle required' },
+        { status: 400 }
+      );
+    }
 
     // Check if already verified
     if (agent.twitterVerified) {
@@ -39,60 +61,62 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (!twitterHandle) {
-      return NextResponse.json(
-        { error: 'twitterHandle required' },
-        { status: 400 }
-      );
-    }
-
-    // Clean handle
-    const cleanHandle = twitterHandle.replace('@', '').trim();
-
     // Check for existing pending verification
-    const existing = verificationStore.getByAgentId(agent.id);
-    if (existing && existing.status === 'pending') {
-      return NextResponse.json({
-        success: true,
-        verificationCode: existing.code,
-        twitterHandle: cleanHandle,
-        agentId: agent.id,
-        profileUrl: `https://sovereignlaunch.vercel.app/agents/${agent.id}`,
-        instructions: {
-          tweet: `I just registered my agent on @SovereignLaunch! 🚀 https://sovereignlaunch.vercel.app/agents/${agent.id} #${existing.code}`,
-          requirements: ['Include @SovereignLaunch', 'Include profile URL', `Hashtag #${existing.code}`]
-        },
-        status: 'pending'
-      });
+    const existingKeys = await redis.keys(`verify:${agentId}:*`);
+    if (existingKeys.length > 0) {
+      const existingData = await redis.get(existingKeys[0]);
+      if (existingData) {
+        const existing = JSON.parse(existingData);
+        const ttl = await redis.ttl(existingKeys[0]);
+        return NextResponse.json({
+          success: true,
+          verificationCode: existing.code,
+          twitterHandle: existing.twitterHandle,
+          message: 'Existing verification code found',
+          expiresInSeconds: ttl,
+          instructions: {
+            tweet: `I just registered my agent on @SovereignLaunch! 🚀\n\nhttps://sovereignlaunch.vercel.app/agents/${agentId}\n#${existing.code}`,
+            mustInclude: ['@SovereignLaunch', existing.code, 'sovereignlaunch.vercel.app'],
+            autoDetect: true,
+            manualSubmit: '/api/agents/verify-submit'
+          }
+        });
+      }
     }
 
     // Generate new code
-    const code = generateVerificationCode();
+    const code = generateCode();
+    const cleanHandle = twitterHandle.replace('@', '').trim();
 
-    // Store verification
-    verificationStore.set(code, {
-      agentId: agent.id,
+    // Store verification code with 24h expiry
+    const verifyData = {
+      agentId,
       code,
       twitterHandle: cleanHandle,
-      createdAt: Date.now(),
+      createdAt: new Date().toISOString(),
       status: 'pending'
-    });
+    };
+
+    // Store with 24 hour expiry (86400 seconds)
+    await redis.setex(`verify:${agentId}:${code}`, 86400, JSON.stringify(verifyData));
 
     // Update agent with twitter handle
-    (agent as any).twitterHandle = cleanHandle;
-    agentStore.set(agent.id, agent);
+    agent.twitterHandle = cleanHandle;
+    await redis.set(`agent:${agentId}`, JSON.stringify(agent));
 
     return NextResponse.json({
       success: true,
       verificationCode: code,
       twitterHandle: cleanHandle,
-      agentId: agent.id,
-      profileUrl: `https://sovereignlaunch.vercel.app/agents/${agent.id}`,
+      agentId,
+      profileUrl: `https://sovereignlaunch.vercel.app/agents/${agentId}`,
+      expiresIn: '24 hours',
       instructions: {
-        tweet: `I just registered my agent on @SovereignLaunch! 🚀 https://sovereignlaunch.vercel.app/agents/${agent.id} #${code}`,
-        requirements: ['Include @SovereignLaunch', 'Include profile URL', `Hashtag #${code}`]
-      },
-      status: 'pending'
+        tweet: `I just registered my agent on @SovereignLaunch! 🚀\n\nhttps://sovereignlaunch.vercel.app/agents/${agentId}\n#${code}`,
+        mustInclude: ['@SovereignLaunch', code, 'sovereignlaunch.vercel.app'],
+        autoDetect: true,
+        manualSubmit: '/api/agents/verify-submit'
+      }
     });
 
   } catch (error) {
