@@ -43,9 +43,10 @@ export function Hero() {
   });
 
   useEffect(() => {
-    // Fetch real stats
+    // Fetch real stats from BAGS API and local agents
     const fetchStats = async () => {
       try {
+        // Get agent count
         const agentsRes = await fetch('/api/agents/register-simple');
         if (agentsRes.ok) {
           const agentsData = await agentsRes.json();
@@ -55,12 +56,22 @@ export function Hero() {
           }));
         }
 
-        const tokensRes = await fetch('/api/tokens?limit=1');
-        if (tokensRes.ok) {
-          const tokensData = await tokensRes.json();
+        // Get real token data from BAGS API
+        const bagsRes = await fetch('/api/bags/tokens?limit=100');
+        if (bagsRes.ok) {
+          const bagsData = await bagsRes.json();
+          const tokens = bagsData.data || [];
+
+          // Calculate total volume across all tokens
+          let totalVolume = 0;
+          tokens.forEach((token: any) => {
+            totalVolume += token.volume24h || token.volume || 0;
+          });
+
           setStats(prev => ({
             ...prev,
-            tokens: tokensData.total || 0
+            tokens: tokens.length,
+            volume: Math.floor(totalVolume / 1000000) // Convert to millions
           }));
         }
       } catch (err) {
