@@ -5,11 +5,11 @@ import Link from 'next/link';
 import { formatAddress } from '@/lib/utils';
 import {
   Rocket, Globe, TrendingUp, ExternalLink, Loader2, Sparkles,
-  Bot, Users, FileText, Swords, Crown, Zap, Activity
+  Bot, Users, FileText, Swords, Crown, Zap, Activity, Flame
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-type Tab = 'agentcoins' | 'community' | 'articles' | 'battle';
+type Tab = 'agentcoins' | 'bagslaunch' | 'community' | 'articles' | 'battle';
 
 interface Token {
   id: string;
@@ -287,6 +287,7 @@ export default function LaunchpadPage() {
 
   const tabs = [
     { id: 'agentcoins' as Tab, label: 'AgentCoins', icon: Rocket, count: agentTokens.length },
+    { id: 'bagslaunch' as Tab, label: 'BagsLaunch', icon: Flame, count: bagsTokens.length, isNew: true },
     { id: 'community' as Tab, label: 'Community', icon: Users, count: agents.length },
     { id: 'articles' as Tab, label: 'Articles', icon: FileText, count: articles.length },
     { id: 'battle' as Tab, label: 'Battle', icon: Swords, count: battles.length },
@@ -357,6 +358,9 @@ export default function LaunchpadPage() {
               <span className="flex items-center gap-2">
                 <tab.icon className="w-4 h-4" />
                 {tab.label}
+                {'isNew' in tab && tab.isNew && (
+                  <span className="px-1.5 py-0.5 bg-green-500 text-black text-[10px] font-bold rounded">NEW</span>
+                )}
                 <span className="badge badge-info text-xs">{tab.count}</span>
               </span>
             </button>
@@ -385,6 +389,83 @@ export default function LaunchpadPage() {
                     </Link>
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === 'bagslaunch' && (
+              <div className="space-y-6">
+                {/* Live Indicator */}
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                  </span>
+                  <span className="text-green-400 text-sm font-bold">LIVE • Auto-refresh every 60s</span>
+                  <span className="text-gray-500 text-sm">• Powered by BAGS API</span>
+                </div>
+
+                <p className="text-gray-400">
+                  Real-time BAGS DEX token launches. New tokens every minute.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {bagsTokens.length > 0 ? (
+                    bagsTokens.map((token) => (
+                      <div key={token.tokenMint} className="card card-hover p-4">
+                        <div className="flex items-start gap-4">
+                          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#ff6b35] to-[#ff8c42] flex items-center justify-center text-xl font-bold text-black">
+                            {token.image ? (
+                              <img src={token.image} alt={token.symbol} className="w-full h-full rounded-lg object-cover" />
+                            ) : (
+                              token.symbol?.charAt(0).toUpperCase()
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-white truncate">{token.name}</h3>
+                              <span className="text-xs text-[#ff6b35] font-mono">${token.symbol}</span>
+                              <span className="badge badge-success text-xs">BAGS</span>
+                            </div>
+
+                            <div className="flex items-center gap-4 mt-3 text-sm">
+                              {token.price !== undefined && (
+                                <span className="text-green-400">${token.price.toFixed(6)}</span>
+                              )}
+                              {token.marketCap !== undefined && (
+                                <span className="text-gray-400">MC: ${(token.marketCap / 1e6).toFixed(2)}M</span>
+                              )}
+                              {token.volume24h !== undefined && (
+                                <span className="text-gray-400">Vol: ${(token.volume24h / 1e3).toFixed(1)}K</span>
+                              )}
+                            </div>
+
+                            {token.holders !== undefined && (
+                              <p className="text-xs text-gray-500 mt-2">
+                                {token.holders.toLocaleString()} holders
+                              </p>
+                            )}
+                          </div>
+
+                          <Link
+                            href={`https://bags.fm/token/${token.tokenMint || token.address}`}
+                            target="_blank"
+                            className="text-gray-400 hover:text-[#ff6b35] transition-colors"
+                          >
+                            <ExternalLink className="w-5 h-5" />
+                          </Link>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-full text-center py-20">
+                      <Flame className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                      <p className="text-gray-400 mb-4">No BAGS tokens available</p>
+                      <Link href="/launch">
+                        <Button>Launch on BAGS</Button>
+                      </Link>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
