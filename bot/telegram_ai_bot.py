@@ -66,6 +66,8 @@ class SovereignLaunchAIBot:
         self.application.add_handler(CommandHandler("skip", self.cmd_skip))  # NEW: Skip verification
         self.application.add_handler(CommandHandler("stats", self.cmd_stats))
         self.application.add_handler(CommandHandler("ask", self.cmd_ask))  # NEW: AI chat
+        self.application.add_handler(CommandHandler("fees", self.cmd_fees))  # Check claimable fees
+        self.application.add_handler(CommandHandler("claim", self.cmd_claim))  # Claim fees
 
         # Callback handler
         self.application.add_handler(CallbackQueryHandler(self.on_callback))
