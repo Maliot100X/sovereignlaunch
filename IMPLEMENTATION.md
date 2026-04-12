@@ -112,17 +112,20 @@ GET /api/cron/verify-twitter
 Required in Vercel:
 ```
 # Telegram
-TELEGRAM_BOT_TOKEN=8204484108:AAF2fWIVpctiClHlN6G98wheaIOFNQ9SnjQ
+TELEGRAM_BOT_TOKEN=820448...SnjQ
 TELEGRAM_CHANNEL_ID=-1003960852431
 
 # BAGS API
-BAGS_API_KEY=bags_prod_YhTVMoennloNU06kSEDqQ8g_Bdd7_5g7RdcMT1EBr4o
+BAGS_API_KEY=bags_p...Br4o
+
+# Jupiter API (for real-time token prices)
+JUPITER_API_KEY=jup_46cf68a0d6fe1dca1b2b48d723ffbf6ed0e00e008627ec80e8206a833bc9a8a7
 
 # Twitter (for auto-verification)
-TWITTER_BEARER_TOKEN=your_twitter_bearer_token
+TWITTER_BEARER_TOKEN=your_t...oken
 
 # Cron
-CRON_SECRET=sovereign-cron-secret-key-2024
+CRON_SECRET=sovere...2024
 
 # Platform
 NEXT_PUBLIC_PLATFORM_FEE_PERCENT=35

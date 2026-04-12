@@ -7,7 +7,11 @@ const BAGS_API_KEY = process.env.BAGS_API_KEY || 'bags_prod_YhTVMoennloNU06kSEDq
 // Cache duration in seconds (2 minutes for feed, 5 minutes for individual tokens)
 const CACHE_DURATION = 120;
 
-// Fetch individual token data with market info
+// Jupiter API for real-time token prices
+const JUPITER_API_KEY = process.env.JUPITER_API_KEY || '';
+const JUPITER_API_URL = 'https://api.jup.ag';
+
+// Fetch individual token data with market info from Jupiter
 async function fetchTokenMarketData(mint: string): Promise<any> {
   try {
     // Check cache first
@@ -16,30 +20,35 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
       return JSON.parse(cached as string);
     }
 
-    const url = `${BAGS_API_URL}/token/${mint}`;
-    const response = await fetch(url, {
-      headers: {
-        'X-API-Key': BAGS_API_KEY,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      return null;
+    // Use Jupiter tokens API for real market data
+    const url = `${JUPITER_API_URL}/tokens/v1/token/${mint}`;
+    const headers: any = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    };
+    
+    // Add API key if available
+    if (JUPITER_API_KEY) {
+      headers['Authorization'] = `Bearer ${JUPITER_API_KEY}`;
     }
 
-    const data = await response.json();
-    const token = data.token || data.data || data;
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      // Fallback: try Jupiter price API
+      return await fetchJupiterPrice(mint);
+    }
+
+    const token = await response.json();
 
     const marketData = {
-      price: Number(token.price || token.currentPrice || token.priceUsd || 0),
-      marketCap: Number(token.marketCap || token.market_cap || token.fdv || 0),
-      volume24h: Number(token.volume24h || token.volume_24h || token.volume24hUsd || token.volume || 0),
-      holders: Number(token.holders || token.holderCount || 0),
-      priceChange24h: Number(token.priceChange24h || token.price_change_24h || token.change24h || 0),
-      liquidity: Number(token.liquidity || token.liquidityUsd || 0),
-      status: token.status || 'Live'
+      price: Number(token.usdPrice || token.price || 0),
+      marketCap: Number(token.mcap || token.marketCap || token.fdv || 0),
+      volume24h: Number(token.stats24h?.volumeChange || token.volume24h || token.volume || 0),
+      holders: Number(token.holderCount || token.holders || 0),
+      priceChange24h: Number(token.stats24h?.priceChange || token.priceChange24h || 0),
+      liquidity: Number(token.liquidity || 0),
+      status: 'Live'
     };
 
     // Cache market data for 5 minutes
@@ -47,7 +56,52 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
 
     return marketData;
   } catch (error) {
-    console.error(`[BAGS] Error fetching market data for ${mint}:`, error);
+    console.error(`[Jupiter] Error fetching market data for ${mint}:`, error);
+    // Fallback to price-only endpoint
+    return await fetchJupiterPrice(mint);
+  }
+}
+
+// Fallback: Jupiter Price API v2 (simpler, always works)
+async function fetchJupiterPrice(mint: string): Promise<any> {
+  try {
+    const url = `${JUPITER_API_URL}/price/v2?ids=${mint}`;
+    const headers: any = {
+      'Accept': 'application/json'
+    };
+    if (JUPITER_API_KEY) {
+      headers['Authorization'] = `Bearer ${JUPITER_API_KEY}`;
+    }
+
+    const response = await fetch(url, { headers });
+    
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    const priceData = data.data?.[mint];
+    
+    if (!priceData) {
+      return null;
+    }
+
+    const marketData = {
+      price: Number(priceData.price || 0),
+      marketCap: 0, // Price API doesn't provide this
+      volume24h: 0,   // Price API doesn't provide this
+      holders: 0,   // Price API doesn't provide this
+      priceChange24h: 0,
+      liquidity: 0,
+      status: 'Live'
+    };
+
+    // Cache for 2 minutes
+    await redis.setex(`bags:token:${mint}:market`, 120, JSON.stringify(marketData));
+
+    return marketData;
+  } catch (error) {
+    console.error(`[Jupiter Price] Error for ${mint}:`, error);
     return null;
   }
 }
