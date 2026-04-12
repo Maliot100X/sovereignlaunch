@@ -9,6 +9,7 @@ const CACHE_DURATION = 120;
 
 // Jupiter Price API for real-time token prices
 const JUPITER_PRICE_URL = 'https://api.jup.ag/price/v2';
+const JUPITER_API_KEY = process.env.JUPITER_API_KEY || '';
 
 // Fetch token market data from Jupiter Price API v2
 async function fetchTokenMarketData(mint: string): Promise<any> {
@@ -49,7 +50,7 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
     const priceUrl = `${JUPITER_PRICE_URL}?ids=${mint}`;
     const priceResponse = await fetch(priceUrl, {
       headers: {
-        'x-api-key': BAGS_API_KEY, // Use Bags API key (may work for Jupiter too)
+        'x-api-key': JUPITER_API_KEY,
         'Accept': 'application/json'
       }
     });
