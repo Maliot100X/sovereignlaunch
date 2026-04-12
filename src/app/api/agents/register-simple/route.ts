@@ -123,8 +123,14 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Agent Registered] ${name} (${wallet}) - ID: ${agentId}`);
 
-    // Notify Telegram channel
-    telegramBot.notifyAgentRegistered(name, agentId, wallet).catch(err => {
+    // Notify Telegram channel with agent images
+    telegramBot.notifyAgentRegistered(
+      name,
+      agentId,
+      wallet,
+      agentData.profileImage,
+      agentData.backgroundImage
+    ).catch(err => {
       console.error('[Register] Telegram notification failed:', err);
     });
 

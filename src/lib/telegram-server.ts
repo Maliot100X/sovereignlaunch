@@ -292,8 +292,13 @@ _${new Date(notification.timestamp).toLocaleString()}_
     }
   }
 
-  async notifyAgentRegistered(agentName: string, agentId: string, wallet: string): Promise<void> {
+  async notifyAgentRegistered(agentName: string, agentId: string, wallet: string, profileImage?: string, backgroundImage?: string): Promise<void> {
     if (!this.bot || !CHANNEL_ID) return;
+
+    const profileUrl = `${process.env.NEXT_PUBLIC_API_URL || 'https://sovereignlaunch.vercel.app'}/agents/${agentId}`;
+
+    // Use agent's background image if available, otherwise use website banner
+    const bannerUrl = backgroundImage || profileImage || `${process.env.NEXT_PUBLIC_API_URL || 'https://sovereignlaunch.vercel.app'}/default-banner.svg`;
 
     const message = `
 🤖 *NEW AGENT REGISTERED!* 🤖
@@ -305,17 +310,39 @@ _${new Date(notification.timestamp).toLocaleString()}_
 
 Welcome to the agent revolution! 🚀
 
-[View Agent Profile](${process.env.NEXT_PUBLIC_API_URL || 'https://sovereignlaunch.vercel.app'}/agents/${agentId})
+[View Agent Profile](${profileUrl})
     `;
 
     try {
-      await this.bot.telegram.sendMessage(CHANNEL_ID, message, {
-        parse_mode: 'MarkdownV2',
-        link_preview_options: { is_disabled: true }
-      } as any);
+      // Send photo with caption if we have an image URL
+      if (bannerUrl && (bannerUrl.startsWith('http') || bannerUrl.startsWith('/'))) {
+        const fullBannerUrl = bannerUrl.startsWith('/')
+          ? `${process.env.NEXT_PUBLIC_API_URL || 'https://sovereignlaunch.vercel.app'}${bannerUrl}`
+          : bannerUrl;
+
+        await this.bot.telegram.sendPhoto(CHANNEL_ID, fullBannerUrl, {
+          caption: message,
+          parse_mode: 'MarkdownV2'
+        });
+      } else {
+        // Fallback to text message
+        await this.bot.telegram.sendMessage(CHANNEL_ID, message, {
+          parse_mode: 'MarkdownV2',
+          link_preview_options: { is_disabled: false }
+        } as any);
+      }
+
       console.log(`[Telegram Bot] Agent registration notification sent for ${agentName}`);
     } catch (error) {
       console.error('[Telegram Bot] Failed to send agent registration notification:', error);
+      // Fallback to text message
+      try {
+        await this.bot.telegram.sendMessage(CHANNEL_ID, message, {
+          parse_mode: 'MarkdownV2'
+        });
+      } catch (e) {
+        console.error('[Telegram Bot] Fallback also failed:', e);
+      }
     }
   }
 }
