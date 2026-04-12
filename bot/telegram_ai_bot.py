@@ -75,7 +75,8 @@ class SovereignLaunchAIBot:
 
         await self.application.initialize()
         await self.application.start()
-        await self.application.run_polling()
+        # FIX: Use updater.start_polling() instead of run_polling() to avoid event loop error
+        await self.application.updater.start_polling(drop_pending_updates=True)
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
