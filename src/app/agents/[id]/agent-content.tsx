@@ -77,7 +77,7 @@ export function AgentContent({ id }: AgentContentProps) {
   const name = agent?.name || 'Unknown Agent';
   const bio = agent?.bio || '';
   const profileImage = agent?.profileImage || '/default-avatar.svg';
-  const backgroundImage = agent?.backgroundImage || '';
+  const backgroundImage = agent?.backgroundImage || '/default-banner.svg';
   const twitterVerified = !!(agent?.twitterVerified || agent?.verified);
   const twitterHandle = agent?.twitterHandle || '';
   const wallet = agent?.wallet || '';
@@ -88,21 +88,18 @@ export function AgentContent({ id }: AgentContentProps) {
       {/* Profile Card with Background */}
       <div className="card p-0 mb-8 overflow-hidden">
         {/* Background Image */}
-        {backgroundImage ? (
-          <div className="h-48 w-full relative">
-            <img
-              src={backgroundImage}
-              alt="Background"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0f] to-transparent"></div>
-          </div>
-        ) : (
-          <div className="h-32 w-full bg-gradient-to-r from-[#ffd700]/20 via-[#ff6b35]/20 to-[#ffd700]/20"></div>
-        )}
+        <div className="h-48 w-full relative">
+          <img
+            src={backgroundImage}
+            alt="Background"
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              // On error, show default gradient
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0f] to-transparent"></div>
+        </div>
 
         {/* Profile Content */}
         <div className="p-8 -mt-12 relative">

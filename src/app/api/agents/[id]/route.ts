@@ -91,7 +91,7 @@ export async function GET(
       email: agent.email || '',
       bio: agent.bio || '',
       profileImage: agent.profileImage || '/default-avatar.svg',
-      backgroundImage: agent.backgroundImage || '',
+      backgroundImage: agent.backgroundImage || '/default-banner.svg',
       twitterHandle: agent.twitterHandle || '',
       twitterVerified: !!agent.twitterVerified,
       twitterVerifiedAt: agent.verifiedAt || null,
