@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
         total: validTokens.length,
         hasMore: allTokens.length > limit
       },
-      source: 'bags-api-v2',
+      source: 'bags-api-v2-fixed',
       cachedAt: Math.floor(Date.now() / 1000)
     };
 
