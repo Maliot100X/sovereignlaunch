@@ -275,7 +275,7 @@ Website: https://sovereignlaunch.vercel.app
         context.user_data['step'] = 'reg_name'
         await update.message.reply_text(
             "🚀 *Let's register your agent!*\n\n"
-            "Step 1/4: What's your agent's name?\n"
+            "Step 1/6: What's your agent's name?\n"
             "(1-30 characters, can include spaces)",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -327,7 +327,7 @@ Use /help for more commands!
             context.user_data['step'] = 'reg_bio'
             await update.message.reply_text(
                 f"✅ Name: {message}\n\n"
-                "Step 2/4: Write a short bio for your agent\n"
+                "Step 2/6: Write a short bio for your agent\n"
                 "(What does your agent do? 1-2 sentences)"
             )
             return
@@ -337,7 +337,7 @@ Use /help for more commands!
             context.user_data['step'] = 'reg_wallet'
             await update.message.reply_text(
                 f"✅ Bio saved!\n\n"
-                "Step 3/4: Your Solana wallet address\n"
+                "Step 3/6: Your Solana wallet address\n"
                 "(where you receive 65% fee earnings)"
             )
             return
@@ -347,12 +347,52 @@ Use /help for more commands!
             context.user_data['step'] = 'reg_email'
             await update.message.reply_text(
                 f"✅ Wallet: {message[:10]}...\n\n"
-                "Step 4/4: Your email for notifications"
+                "Step 4/6: Your email for notifications"
             )
             return
 
         elif step == 'reg_email':
-            await self.complete_registration(update, context, message)
+            context.user_data['email'] = message
+            context.user_data['step'] = 'reg_profile_image'
+            await update.message.reply_text(
+                f"✅ Email saved: {message}\n\n"
+                "Step 5/6: Profile Image URL\n"
+                "Send an image URL for your agent's profile picture\n"
+                "(or type 'skip' to use default avatar)"
+            )
+            return
+
+        elif step == 'reg_profile_image':
+            if message.lower() != 'skip':
+                context.user_data['profile_image'] = message.strip()
+            context.user_data['step'] = 'reg_banner_image'
+            await update.message.reply_text(
+                "✅ Profile image saved!\n\n"
+                "Step 6/6: Banner Image URL\n"
+                "Send an image URL for your agent's banner/background\n"
+                "(or type 'skip' to use default gradient)"
+            )
+            return
+
+        elif step == 'reg_banner_image':
+            if message.lower() != 'skip':
+                context.user_data['banner_image'] = message.strip()
+            context.user_data['step'] = 'reg_confirm'
+            await update.message.reply_text(
+                "✅ Banner image saved!\n\n"
+                "*Confirm Registration*\n"
+                "Type 'CREATE' to create your agent, or 'CANCEL' to abort."
+            )
+            return
+
+        elif step == 'reg_confirm':
+            if message.upper() == 'CREATE':
+                await self.complete_registration(update, context)
+            elif message.upper() == 'CANCEL':
+                context.user_data.clear()
+                await update.message.reply_text("❌ Registration cancelled. Start again with /register")
+            else:
+                await update.message.reply_text("Please type 'CREATE' to confirm or 'CANCEL' to abort.")
             return
 
         # Verification flow - STEP 1: Validate API Key
@@ -423,19 +463,27 @@ https://sovereignlaunch.vercel.app/agents/{agent_id}
             "/help - All commands"
         )
 
-    async def complete_registration(self, update: Update, context: ContextTypes.DEFAULT_TYPE, email: str):
+    async def complete_registration(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Complete agent registration."""
         try:
-            context.user_data['email'] = email
+            payload = {
+                "name": context.user_data['name'],
+                "wallet": context.user_data['wallet'],
+                "email": context.user_data['email'],
+                "bio": context.user_data.get('bio', '')
+            }
+
+            # Add profile image if provided
+            if context.user_data.get('profile_image'):
+                payload['profileImage'] = context.user_data['profile_image']
+
+            # Add banner image if provided
+            if context.user_data.get('banner_image'):
+                payload['backgroundImage'] = context.user_data['banner_image']
 
             async with self.session.post(
                 f"{API_BASE_URL}/agents/register-simple",
-                json={
-                    "name": context.user_data['name'],
-                    "wallet": context.user_data['wallet'],
-                    "email": context.user_data['email'],
-                    "bio": context.user_data.get('bio', '')
-                }
+                json=payload
             ) as resp:
                 response_text = await resp.text()
                 logger.info(f"Registration response: {resp.status} - {response_text[:200]}")

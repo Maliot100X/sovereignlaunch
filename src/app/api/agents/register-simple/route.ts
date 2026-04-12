@@ -8,7 +8,7 @@ import { telegramBot } from '@/lib/telegram-server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, wallet, email, bio, profileImage, twitterHandle } = body;
+    const { name, wallet, email, bio, profileImage, backgroundImage, twitterHandle } = body;
 
     // Validation
     if (!name || !wallet || !email) {
@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
       email,
       bio: bio || '',
       profileImage: profileImage || '',
+      backgroundImage: backgroundImage || '',
       twitterHandle: twitterHandle || '',
       twitterVerified: false,
       verifiedAt: null,
@@ -183,7 +184,8 @@ export async function GET() {
           id: agent.id,
           name: agent.name,
           bio: agent.bio,
-          profileImage: agent.profileImage || '/default-avatar.png',
+          profileImage: agent.profileImage || '/default-avatar.svg',
+          backgroundImage: agent.backgroundImage || '',
           twitterHandle: agent.twitterHandle || '',
           twitterVerified: agent.twitterVerified || false,
           verifiedAt: agent.verifiedAt || null,

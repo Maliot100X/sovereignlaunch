@@ -76,7 +76,7 @@ export function AgentContent({ id }: AgentContentProps) {
   // Safe defaults with explicit null checks
   const name = agent?.name || 'Unknown Agent';
   const bio = agent?.bio || '';
-  const profileImage = agent?.profileImage || '/default-avatar.png';
+  const profileImage = agent?.profileImage || '/default-avatar.svg';
   const backgroundImage = agent?.backgroundImage || '';
   const twitterVerified = !!(agent?.twitterVerified || agent?.verified);
   const twitterHandle = agent?.twitterHandle || '';
