@@ -7,12 +7,10 @@ const BAGS_API_KEY = process.env.BAGS_API_KEY || '';
 // Cache duration in seconds
 const CACHE_DURATION = 120;
 
-// Jupiter Swap API for price calculation (Price API gives 403, Swap API works!)
-const JUPITER_API_KEY = process.env.JUPITER_API_KEY || '';
-const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-const SOL_MINT = 'So11111111111111111111111111111111111111112';
+// GeckoTerminal API for token prices (works with NEW Bags tokens!)
+const GECKOTERMINAL_API_URL = 'https://api.geckoterminal.com/api/v2';
 
-// Fetch token market data from Jupiter Swap API (quote to calculate price)
+// Fetch token market data from GeckoTerminal (has prices for new tokens!)
 async function fetchTokenMarketData(mint: string): Promise<any> {
   try {
     // Check cache first
@@ -47,43 +45,39 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
       // Continue without pool data
     }
 
-    // Calculate price from Jupiter Swap quote
-    // Quote token -> USDC to get USD price
+    // Fetch price from GeckoTerminal (works with new tokens!)
     let price = 0;
+    let marketCap = 0;
+    let volume24h = 0;
     
     try {
-      // Use 1000 units of token for quote (adjust for decimals later)
-      const quoteAmount = '1000000'; // 1 token with 6 decimals
+      const geckoUrl = `${GECKOTERMINAL_API_URL}/networks/solana/tokens/${mint}`;
       
-      const quoteUrl = `https://api.jup.ag/swap/v1/quote?inputMint=${mint}&outputMint=${USDC_MINT}&amount=${quoteAmount}&slippageBps=50`;
-      
-      const quoteResponse = await fetch(quoteUrl, {
+      const geckoResponse = await fetch(geckoUrl, {
         headers: {
-          'Accept': 'application/json',
-          'x-api-key': JUPITER_API_KEY
+          'Accept': 'application/json'
+          // GeckoTerminal doesn't require API key but needs User-Agent
         }
       });
 
-      if (quoteResponse.ok) {
-        const quoteData = await quoteResponse.json();
+      if (geckoResponse.ok) {
+        const geckoData = await geckoResponse.json();
+        const attrs = geckoData?.data?.attributes || {};
         
-        if (quoteData.outAmount) {
-          // Calculate price: outAmount (USDC with 6 decimals) / quoteAmount (token)
-          const usdcOut = Number(quoteData.outAmount) / 1e6;
-          const tokenIn = Number(quoteAmount) / 1e6;
-          price = usdcOut / tokenIn;
-        }
+        price = parseFloat(attrs.price_usd || 0);
+        marketCap = parseFloat(attrs.market_cap_usd || attrs.fdv_usd || 0);
+        volume24h = parseFloat(attrs.volume_usd?.h24 || 0);
       }
-    } catch (quoteError) {
-      console.error(`[Jupiter Swap] Quote error for ${mint}:`, quoteError);
+    } catch (geckoError) {
+      console.error(`[GeckoTerminal] Error for ${mint}:`, geckoError);
     }
 
     const marketData = {
       price: price,
-      marketCap: 0, // Need total supply
-      volume24h: 0, // Not provided
-      holders: 0, // Not provided
-      priceChange24h: 0, // Not provided by swap API
+      marketCap: marketCap,
+      volume24h: volume24h,
+      holders: 0, // Not provided by GeckoTerminal
+      priceChange24h: 0, // Not provided
       liquidity: 0,
       status: poolInfo.migrated ? 'Live' : 'Pre-Grad',
       poolAddress: poolInfo.poolAddress,
@@ -95,7 +89,7 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
     return marketData;
 
   } catch (error) {
-    console.error(`[Jupiter Swap] Error for ${mint}:`, error);
+    console.error(`[GeckoTerminal] Error for ${mint}:`, error);
     return null;
   }
 }
