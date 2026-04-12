@@ -1388,14 +1388,35 @@ Share your token everywhere! 🎉
 
 async def main():
     bot = SovereignLaunchAIBot()
+    stop_event = asyncio.Event()
+
+    # Setup signal handlers for graceful shutdown
+    def signal_handler(sig):
+        logger.info(f"Received signal {sig}, shutting down...")
+        stop_event.set()
+
+    try:
+        loop = asyncio.get_running_loop()
+        import signal as signal_module
+        for sig in (signal_module.SIGINT, signal_module.SIGTERM):
+            loop.add_signal_handler(sig, lambda s=sig: signal_handler(s))
+    except (NotImplementedError, ValueError):
+        pass  # Windows or already handled
+
     try:
         await bot.start()
+        logger.info("✅ Bot polling started, waiting for events...")
+
+        # Keep running until stop signal
+        await stop_event.wait()
+
     except KeyboardInterrupt:
-        logger.info("Shutting down...")
-        await bot.stop()
+        logger.info("Keyboard interrupt received, shutting down...")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
+    finally:
         await bot.stop()
+        logger.info("👋 Bot stopped gracefully")
 
 if __name__ == "__main__":
     asyncio.run(main())
