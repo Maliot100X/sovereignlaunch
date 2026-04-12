@@ -1,20 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import redis from '@/lib/redis';
-import { Connection, PublicKey } from '@solana/web3.js';
-import DLMM from '@meteora-ag/dlmm';
 
 const BAGS_API_URL = process.env.BAGS_API_URL || 'https://public-api-v2.bags.fm/api/v1';
 const BAGS_API_KEY = process.env.BAGS_API_KEY || 'bags_prod_YhTVMoennloNU06kSEDqQ8g_Bdd7_5g7RdcMT1EBr4o';
-const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 // Cache duration in seconds
 const CACHE_DURATION = 120;
 
-// Solana connection
-const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
-
-// Fetch token market data from Meteora DLMM pools
-async function fetchTokenMarketData(mint: string, poolAddress?: string): Promise<any> {
+// Fetch token market data from Bags pools endpoint
+async function fetchTokenMarketData(mint: string): Promise<any> {
   try {
     // Check cache first
     const cached = await redis.get(`bags:token:${mint}:market`);
@@ -22,80 +16,46 @@ async function fetchTokenMarketData(mint: string, poolAddress?: string): Promise
       return JSON.parse(cached as string);
     }
 
-    // If we have a pool address, fetch from Meteora directly
-    if (poolAddress) {
-      try {
-        // Load DLMM pool
-        const pool = await DLMM.create(connection, new PublicKey(poolAddress));
+    // Try to get pool data from Bags API
+    const poolUrl = `${BAGS_API_URL}/solana/bags/pools/token-mint?tokenMint=${mint}`;
+    
+    const poolResponse = await fetch(poolUrl, {
+      headers: {
+        'X-API-Key': BAGS_API_KEY,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (poolResponse.ok) {
+      const poolData = await poolResponse.json();
+      
+      if (poolData.success && poolData.response) {
+        const pool = poolData.response;
         
-        // Get pool info
-        const tokenX = pool.tokenX;
-        const tokenY = pool.tokenY;
-        
-        // Get pool reserves
-        const reserveX = await connection.getTokenAccountBalance(pool.lbPair.reserveX);
-        const reserveY = await connection.getTokenAccountBalance(pool.lbPair.reserveY);
-        
-        // Calculate price
-        const reserveXValue = Number(reserveX.value.amount) / Math.pow(10, tokenX.decimal);
-        const reserveYValue = Number(reserveY.value.amount) / Math.pow(10, tokenY.decimal);
-        
-        // Price = reserveY / reserveX (tokenY per tokenX)
-        const price = reserveXValue > 0 ? reserveYValue / reserveXValue : 0;
-        
-        // Get active bin price (more accurate)
-        const activeBin = await pool.getActiveBin();
-        const binPrice = activeBin.price;
-        
-        // Determine which token is our target
-        const isTokenX = tokenX.mint.toBase58() === mint;
-        const tokenPrice = isTokenX ? binPrice : 1 / binPrice;
-        
-        // Calculate TVL (rough estimate)
-        const tvl = reserveXValue + (reserveYValue * (isTokenX ? 1/binPrice : binPrice));
+        // Check if pool has migrated (has dammV2PoolKey)
+        const hasMigrated = !!pool.dammV2PoolKey;
         
         const marketData = {
-          price: tokenPrice,
-          marketCap: 0, // Need total supply to calculate
-          volume24h: 0, // Need historical data
-          holders: 0, // Not available from pool
+          price: 0, // Can't get from Bags API alone
+          marketCap: 0,
+          volume24h: 0,
+          holders: 0,
           priceChange24h: 0,
-          liquidity: tvl,
-          status: 'Live',
-          poolAddress: poolAddress
+          liquidity: 0,
+          status: hasMigrated ? 'Live' : 'Pre-Grad',
+          poolAddress: pool.dbcPoolKey || null,
+          dammV2PoolKey: pool.dammV2PoolKey || null
         };
 
         // Cache for 5 minutes
         await redis.setex(`bags:token:${mint}:market`, 300, JSON.stringify(marketData));
         return marketData;
-        
-      } catch (poolError) {
-        console.error(`[Meteora] Pool fetch error for ${mint}:`, poolError);
       }
-    }
-
-    // Fallback: Try to find pool by mint
-    try {
-      // Search for pools containing this mint
-      // This is a simplified approach - in production, you'd query a pool index
-      const pools = await DLMM.getLbPairs(connection);
-      
-      for (const pool of pools) {
-        const poolMintX = pool.account.tokenXMint.toBase58();
-        const poolMintY = pool.account.tokenYMint.toBase58();
-        
-        if (poolMintX === mint || poolMintY === mint) {
-          // Found a pool with this token
-          return await fetchTokenMarketData(mint, pool.publicKey.toBase58());
-        }
-      }
-    } catch (searchError) {
-      console.error(`[Meteora] Pool search error for ${mint}:`, searchError);
     }
 
     return null;
   } catch (error) {
-    console.error(`[Meteora] Error fetching market data for ${mint}:`, error);
+    console.error(`[Bags Pool] Error for ${mint}:`, error);
     return null;
   }
 }
@@ -145,19 +105,18 @@ export async function GET(request: NextRequest) {
     // Get raw tokens from feed
     const allTokens = (data.tokens || data.data || data.response || []);
 
-    // Enrich tokens with real market data from Meteora
+    // Enrich tokens with pool data
     const enrichedTokens = await Promise.all(
       allTokens.slice(0, limit * 2).map(async (token: any) => {
         const mint = String(token.tokenMint || token.address || token.mint || '');
-        const poolAddress = token.dbcPoolKey || token.poolAddress;
         
         if (!mint) return null;
 
-        // Fetch real market data from Meteora
-        const marketData = await fetchTokenMarketData(mint, poolAddress);
+        // Fetch pool data from Bags
+        const marketData = await fetchTokenMarketData(mint);
 
         // Skip tokens with no market data if requireMarketData is true
-        if (requireMarketData && marketData && marketData.volume24h === 0 && marketData.marketCap === 0) {
+        if (requireMarketData && !marketData) {
           return null;
         }
 
@@ -171,13 +130,14 @@ export async function GET(request: NextRequest) {
           holders: marketData?.holders || Number(token.holders || token.holderCount || 0),
           image: String(token.imageUrl || token.image || token.logoURI || '/placeholder-token.png'),
           imageUrl: String(token.imageUrl || token.image || token.logoURI || '/placeholder-token.png'),
-          status: marketData?.status || String(token.status || 'Live'),
+          status: marketData?.status || String(token.status || 'PRE_LAUNCH'),
           creator: token.creator || { name: String(token.creatorName || 'Unknown') },
           launchedAt: String(token.launchedAt || token.createdAt || token.timestamp || new Date().toISOString()),
           priceChange24h: marketData?.priceChange24h || Number(token.priceChange24h || token.price_change_24h || 0),
           liquidity: marketData?.liquidity || Number(token.liquidity || 0),
           address: mint,
-          poolAddress: poolAddress
+          poolAddress: marketData?.poolAddress || token.dbcPoolKey || null,
+          dammV2PoolKey: marketData?.dammV2PoolKey || token.dammV2PoolKey || null
         };
       })
     );
@@ -202,7 +162,7 @@ export async function GET(request: NextRequest) {
         total: validTokens.length,
         hasMore: allTokens.length > limit
       },
-      source: 'bags-api-meteora',
+      source: 'bags-api-v2',
       cachedAt: Math.floor(Date.now() / 1000)
     };
 
