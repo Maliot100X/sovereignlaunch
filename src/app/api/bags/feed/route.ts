@@ -7,10 +7,10 @@ const BAGS_API_KEY = process.env.BAGS_API_KEY || 'bags_prod_YhTVMoennloNU06kSEDq
 // Cache duration in seconds (2 minutes for feed, 5 minutes for individual tokens)
 const CACHE_DURATION = 120;
 
-// CoinGecko API for real-time token prices (FREE, RELIABLE)
-const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY || ''; // Optional: for higher rate limits
+// Jupiter API configuration
+const JUPITER_API_KEY=proces..._KEY || '';
 
-// Fetch token market data from CoinGecko (proven to work!)
+// Fetch token market data from Jupiter (works with Bags tokens!)
 async function fetchTokenMarketData(mint: string): Promise<any> {
   try {
     // Check cache first
@@ -19,41 +19,63 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
       return JSON.parse(cached as string);
     }
 
-    // CoinGecko API - free tier available
-    // For Solana tokens, we need to use the contract address
-    const url = `https://api.coingecko.com/api/v3/simple/token_price/solana?contract_addresses=${mint}&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
+    // Use Jupiter CLI which we confirmed works
+    // This calls the internal Jupiter API that has all token data
+    const { execSync } = require('child_process');
     
+    try {
+      // Run Jupiter CLI to get token data
+      const result = execSync(
+        `jup spot tokens --mint ${mint} --format json 2>/dev/null || jup spot tokens --search ${mint} --format json 2>/dev/null`,
+        { encoding: 'utf-8', timeout: 10000 }
+      );
+      
+      const tokens = JSON.parse(result);
+      const token = Array.isArray(tokens) ? tokens[0] : tokens;
+      
+      if (token && token.usdPrice) {
+        const marketData = {
+          price: Number(token.usdPrice || 0),
+          marketCap: Number(token.mcap || token.marketCap || 0),
+          volume24h: Number(token.stats24h?.buyVolume || 0) + Number(token.stats24h?.sellVolume || 0),
+          holders: Number(token.holderCount || 0),
+          priceChange24h: Number(token.stats24h?.priceChange || 0),
+          liquidity: Number(token.liquidity || 0),
+          status: 'Live'
+        };
+
+        // Cache for 5 minutes
+        await redis.setex(`bags:token:${mint}:market`, 300, JSON.stringify(marketData));
+        return marketData;
+      }
+    } catch (cliError) {
+      console.log(`[Jupiter CLI] Failed for ${mint}, trying fallback...`);
+    }
+
+    // Fallback: Try Jupiter REST API directly
+    const url = `https://api.jup.ag/tokens/v1/token/${mint}`;
     const headers: any = {
       'Accept': 'application/json',
     };
-    
-    // Add API key if available (for pro users)
-    if (COINGECKO_API_KEY) {
-      headers['x-cg-pro-api-key'] = COINGECKO_API_KEY;
+    if (JUPITER_API_KEY) {
+      headers['Authorization'] = `Bearer ${JUPITER_API_KEY}`;
     }
 
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers, next: { revalidate: 60 } });
 
     if (!response.ok) {
-      console.error(`[CoinGecko] API error for ${mint}: ${response.status}`);
       return null;
     }
 
-    const data = await response.json();
-    const tokenData = data[mint.toLowerCase()];
-    
-    if (!tokenData) {
-      // Token not found on CoinGecko
-      return null;
-    }
+    const token = await response.json();
 
     const marketData = {
-      price: Number(tokenData.usd || 0),
-      marketCap: Number(tokenData.usd_market_cap || 0),
-      volume24h: Number(tokenData.usd_24h_vol || 0),
-      holders: 0, // CoinGecko doesn't provide holder count
-      priceChange24h: Number(tokenData.usd_24h_change || 0),
-      liquidity: 0, // Not provided by CoinGecko simple endpoint
+      price: Number(token.usdPrice || token.price || 0),
+      marketCap: Number(token.mcap || token.marketCap || token.fdv || 0),
+      volume24h: Number(token.stats24h?.buyVolume || 0) + Number(token.stats24h?.sellVolume || 0),
+      holders: Number(token.holderCount || token.holders || 0),
+      priceChange24h: Number(token.stats24h?.priceChange || token.priceChange24h || 0),
+      liquidity: Number(token.liquidity || 0),
       status: 'Live'
     };
 
@@ -62,7 +84,7 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
 
     return marketData;
   } catch (error) {
-    console.error(`[CoinGecko] Error fetching market data for ${mint}:`, error);
+    console.error(`[Jupiter] Error fetching market data for ${mint}:`, error);
     return null;
   }
 }
