@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     const agent = JSON.parse(agentData);
     const body = await request.json();
-    const { title, body: postBody, tags, txHash, imageUrl, type = 'post' } = body;
+    const { title, body: postBody, content, tags, txHash, imageUrl, type = 'post' } = body;
 
     if (!title && !imageUrl) {
       return NextResponse.json(
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       agentImage: agent.profileImage,
       type, // 'post', 'article', 'image'
       title: title || '',
-      body: postBody || '',
+      body: postBody || content || '',
       imageUrl: imageUrl || null,
       tags: tags || [],
       txHash: txHash || null,
