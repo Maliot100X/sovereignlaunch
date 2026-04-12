@@ -70,7 +70,8 @@ class SovereignLaunchAIBot:
         # Callback handler
         self.application.add_handler(CallbackQueryHandler(self.on_callback))
 
-        # Message handler
+        # Message handlers - order matters! Photos first, then text
+        self.application.add_handler(MessageHandler(filters.PHOTO, self.on_photo))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_message))
 
         logger.info("🤖 SovereignLaunch AI Bot started")
@@ -462,6 +463,148 @@ https://sovereignlaunch.vercel.app/agents/{agent_id}
             "/stats - Platform stats\n"
             "/help - All commands"
         )
+
+    async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle photo uploads during registration."""
+        user_id = update.effective_user.id
+        step = context.user_data.get('step')
+
+        # Only process photos during registration steps
+        if step not in ['reg_profile_image', 'reg_banner_image']:
+            await update.message.reply_text(
+                "📸 I received your image!\n\n"
+                "To use this image for your agent:\n"
+                "1. Use /register to create an agent\n"
+                "2. When asked for images, you can upload directly!"
+            )
+            return
+
+        try:
+            await update.message.chat.send_action(action="upload_photo")
+
+            # Get the largest photo (best quality)
+            photo = update.message.photo[-1]
+            file_id = photo.file_id
+
+            # Get file info from Telegram
+            file = await context.bot.get_file(file_id)
+            file_url = file.file_path
+
+            logger.info(f"Downloading photo from Telegram: {file_url}")
+
+            # Download the file
+            import os
+            import time
+
+            # Create uploads directory if not exists
+            upload_dir = "/root/sovereignlaunch/uploads"
+            os.makedirs(upload_dir, exist_ok=True)
+
+            # Generate unique filename
+            timestamp = int(time.time())
+            filename = f"agent_{user_id}_{timestamp}.jpg"
+            local_path = os.path.join(upload_dir, filename)
+
+            # Download the photo
+            await file.download_to_drive(local_path)
+
+            # The image is now saved locally. For a production setup,
+            # we need to serve this via a public URL.
+            # Option 1: If the server has a public IP/domain, serve directly
+            # Option 2: Upload to an image hosting service
+
+            # For now, we'll use the local path and assume the user will
+            # need to provide a publicly accessible URL
+            # Or we can upload to imgbb if API key is available
+
+            # Check if we have an image hosting service configured
+            imgbb_api_key = os.getenv('IMGBB_API_KEY')
+
+            if imgbb_api_key:
+                # Upload to ImgBB for public URL
+                image_url = await self.upload_to_imgbb(local_path, imgbb_api_key)
+                if image_url:
+                    public_url = image_url
+                else:
+                    await update.message.reply_text(
+                        "❌ Failed to upload image to hosting service.\n"
+                        "Please provide a direct image URL instead, or type 'skip'."
+                    )
+                    return
+            else:
+                # No image hosting configured - tell user to use URL instead
+                # Clean up the downloaded file
+                os.remove(local_path)
+                await update.message.reply_text(
+                    "📸 *Image Upload Not Available*\n\n"
+                    "Direct image uploads require an image hosting service.\n\n"
+                    "Please provide a direct image URL instead:\n"
+                    "• Upload your image to imgur.com, postimg.cc, or similar\n"
+                    "• Copy the direct image link (ends in .jpg/.png)\n"
+                    "• Paste the URL here\n\n"
+                    "Or type 'skip' to use default."
+                )
+                return
+
+            # Store the URL based on which step we're in
+            if step == 'reg_profile_image':
+                context.user_data['profile_image'] = public_url
+                context.user_data['step'] = 'reg_banner_image'
+                await update.message.reply_text(
+                    f"✅ *Profile image saved!*\n\n"
+                    f"URL: `{public_url[:50]}...`\n\n"
+                    f"Step 6/6: Banner Image URL\n"
+                    f"Send an image URL for your agent's banner/background\n"
+                    f"(or type 'skip' to use default gradient)",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            elif step == 'reg_banner_image':
+                context.user_data['banner_image'] = public_url
+                context.user_data['step'] = 'reg_confirm'
+                await update.message.reply_text(
+                    f"✅ *Banner image saved!*\n\n"
+                    f"URL: `{public_url[:50]}...`\n\n"
+                    f"*Confirm Registration*\n"
+                    f"Type 'CREATE' to create your agent, or 'CANCEL' to abort.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+
+            # Clean up local file after successful upload
+            if os.path.exists(local_path):
+                os.remove(local_path)
+
+        except Exception as e:
+            logger.error(f"Photo upload error: {e}", exc_info=True)
+            await update.message.reply_text(
+                "❌ *Error processing image*\n\n"
+                f"Details: `{str(e)[:100]}`\n\n"
+                "Please provide a direct image URL instead, or type 'skip'.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+    async def upload_to_imgbb(self, local_path: str, api_key: str) -> str:
+        """Upload image to ImgBB and return public URL."""
+        try:
+            import base64
+
+            with open(local_path, 'rb') as f:
+                image_data = base64.b64encode(f.read()).decode('utf-8')
+
+            async with self.session.post(
+                'https://api.imgbb.com/1/upload',
+                data={
+                    'key': api_key,
+                    'image': image_data
+                }
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get('success'):
+                        return data['data']['url']
+                return None
+        except Exception as e:
+            logger.error(f"ImgBB upload error: {e}")
+            return None
 
     async def complete_registration(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Complete agent registration."""
