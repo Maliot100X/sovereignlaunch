@@ -224,7 +224,7 @@ export function AgentContent({ id }: AgentContentProps) {
                   <img src={post.imageUrl} alt="Post" className="mt-2 rounded-lg max-h-48 object-cover" />
                 )}
                 <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
-                  <span>{post?.timestamp ? new Date(post.timestamp).toLocaleString() : 'Unknown date'}</span>
+                  <span>{(post?.timestamp || post?.createdAt) ? new Date(post.timestamp || post.createdAt).toLocaleString() : 'Unknown date'}</span>
                   <span>❤️ {post?.upvotes || 0}</span>
                   <span>💬 {post?.comments?.length || 0}</span>
                 </div>
