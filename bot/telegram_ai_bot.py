@@ -88,6 +88,7 @@ class SovereignLaunchAIBot:
         """Handle /start command."""
         keyboard = [
             [InlineKeyboardButton("🚀 Register Agent", callback_data="register_start")],
+            [InlineKeyboardButton("💰 Check Fees", callback_data="check_fees")],
             [InlineKeyboardButton("✅ Verify Twitter", callback_data="verify_start")],
             [InlineKeyboardButton("🤖 Ask AI", callback_data="ask_ai")],
             [InlineKeyboardButton("📊 Stats", callback_data="view_stats")]
@@ -125,6 +126,13 @@ How can I help you today?
 *Registration:*
 /register - Register new agent (FREE)
 
+*Token Launch:*
+/launch - Launch your token (0.05 SOL fee)
+
+*Fee Management:*
+/fees - Check claimable fees from your tokens
+/claim - Claim your earned fees
+
 *Verification:*
 /verify - Get Twitter verification code
 /skip - Skip Twitter verification (optional)
@@ -136,13 +144,11 @@ How can I help you today?
 /stats - Platform statistics
 /help - This menu
 
-*How Verification Works:*
-1. Register agent → Get API key ✓
-2. /verify → Get unique code (VERIFY-XXXXXX)
-3. Post tweet with code + @SovereignLaunch
-4. Reply with tweet URL → INSTANT verification ⚡
-
-Or type "skip" anytime to skip verification.
+*How It Works:*
+1. /register → Get API key ✓
+2. /launch → Pay 0.05 SOL → Token live! 🚀
+3. /fees → Check earnings anytime 💰
+4. /claim → Withdraw your fees 💸
 
 *Fee Structure:*
 • Registration: FREE ✓
@@ -453,15 +459,32 @@ https://sovereignlaunch.vercel.app/agents/{agent_id}
             await self.launch_collect_details(update, context, message)
             return
 
+        # FEES FLOW
+        elif step == 'fees_ask_apikey':
+            await self.fees_check(update, context, message)
+            return
+
+        # CLAIM FLOW
+        elif step == 'claim_ask_apikey':
+            await self.claim_process(update, context, message)
+            return
+        elif step == 'claim_select_token':
+            await self.claim_process(update, context, message)
+            return
+
         # Default AI response for general messages
         await update.message.reply_text(
             "🤖 I'm SovereignLaunch Bot!\n\n"
-            "Commands:\n"
-            "/ask - Chat with AI\n"
-            "/register - Create agent (FREE)\n"
-            "/verify - Get Twitter verification\n"
-            "/stats - Platform stats\n"
-            "/help - All commands"
+            "*Main Commands:*\n"
+            "/register - Create agent (FREE) 🆕\n"
+            "/launch - Launch token (0.05 SOL) 🚀\n"
+            "/fees - Check your earnings 💰\n"
+            "/claim - Claim your fees 💸\n"
+            "/verify - Twitter verification ✓\n"
+            "/ask - Chat with AI 🤖\n"
+            "/stats - Platform stats 📊\n"
+            "/help - Full help menu",
+            parse_mode=ParseMode.MARKDOWN
         )
 
     async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1141,6 +1164,29 @@ Badge added to profile! ✓
                      "Or just type your question and I'll answer!",
                 parse_mode=ParseMode.MARKDOWN
             )
+        elif data == "check_fees":
+            # Start fee check flow
+            context.user_data['step'] = 'fees_ask_apikey'
+            await self.application.bot.send_message(
+                chat_id=chat_id,
+                text="💰 *Check Your Fees*\n\n"
+                     "Please provide your *Agent API Key*.\n\n"
+                     "🔑 It looks like: `sl_agt_xxxxx...`\n\n"
+                     "I'll check all your launched tokens for claimable fees.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+        elif data == "check_fees":
+            # Start fees flow
+            context.user_data['step'] = 'fees_ask_apikey'
+            await self.application.bot.send_message(
+                chat_id=chat_id,
+                text="💰 *Check Your Fees*\n\n"
+                     "Step 1/2: Please provide your *Agent API Key*.\n\n"
+                     "🔑 It looks like: `sl_agt_xxxxx...`\n\n"
+                     "I'll check all your launched tokens for claimable fees.",
+                parse_mode=ParseMode.MARKDOWN
+            )
         elif data == "view_stats":
             # Call stats directly
             try:
@@ -1203,6 +1249,245 @@ Platform Wallet:
         except Exception as e:
             logger.error(f"Stats error: {e}")
             await update.message.reply_text("❌ Error fetching stats")
+
+    async def cmd_fees(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /fees command - Check claimable fees."""
+        context.user_data['step'] = 'fees_ask_apikey'
+        await update.message.reply_text(
+            "💰 *Check Your Fees*\n\n"
+            "Step 1/2: Please provide your *Agent API Key*\n\n"
+            "🔑 It looks like: `sl_agt_xxxxx...`\n\n"
+            "I'll check all your launched tokens for claimable fees.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    async def fees_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE, api_key: str):
+        """Check fees using API."""
+        try:
+            await update.message.chat.send_action(action="typing")
+
+            async with self.session.get(
+                f"{API_BASE_URL}/agents/fees",
+                headers={'x-api-key': api_key}
+            ) as resp:
+                response_text = await resp.text()
+                logger.info(f"Fees check response: {resp.status}")
+
+                if resp.status == 200:
+                    data = json.loads(response_text)
+                    claimable_fees = data.get('claimableFees', [])
+                    total_sol = data.get('totalAmount', 0)
+                    agent_wallet = data.get('agentWallet', 'Unknown')
+
+                    if not claimable_fees or total_sol == 0:
+                        await update.message.reply_text(
+                            "💰 *Fee Status*\n\n"
+                            "No claimable fees at this time.\n\n"
+                            "Your tokens need trading volume to generate fees.\n"
+                            "Check back later or launch more tokens!",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        context.user_data['step'] = None
+                        return
+
+                    # Build fee list
+                    fee_list = []
+                    for fee in claimable_fees[:5]:  # Show top 5
+                        symbol = fee.get('tokenSymbol', '???')
+                        amount = fee.get('amount', 0)
+                        fee_list.append(f"• ${symbol}: {amount:.4f} SOL")
+
+                    message = f"""
+💰 *Your Claimable Fees*
+
+Wallet: `{agent_wallet[:20]}...`
+
+*Tokens with Fees:*
+{chr(10).join(fee_list)}
+
+*Total:* {total_sol:.4f} SOL
+
+Use /claim to claim your fees!
+                    """
+                    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+                    context.user_data['step'] = None
+
+                elif resp.status == 401:
+                    await update.message.reply_text(
+                        "❌ *Invalid API Key*\n\n"
+                        "Please check your API key and try again.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await update.message.reply_text(
+                        "❌ Error checking fees. Please try again later."
+                    )
+
+        except Exception as e:
+            logger.error(f"Fees check error: {e}", exc_info=True)
+            await update.message.reply_text("❌ Error checking fees. Please try again.")
+            context.user_data['step'] = None
+
+    async def cmd_claim(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /claim command - Claim fees for a token."""
+        context.user_data['step'] = 'claim_ask_apikey'
+        await update.message.reply_text(
+            "💸 *Claim Your Fees*\n\n"
+            "Step 1/3: Please provide your *Agent API Key*\n\n"
+            "🔑 It looks like: `sl_agt_xxxxx...`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    async def claim_process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, message: str):
+        """Process claim flow."""
+        step = context.user_data.get('step')
+        api_key = context.user_data.get('claim_api_key')
+
+        if step == 'claim_ask_apikey':
+            # Validate API key and show fees
+            context.user_data['claim_api_key'] = message
+            await self.claim_show_tokens(update, context, message)
+            return
+
+        elif step == 'claim_select_token':
+            # User selected token to claim
+            try:
+                token_index = int(message) - 1
+                tokens = context.user_data.get('claim_tokens', [])
+
+                if token_index < 0 or token_index >= len(tokens):
+                    await update.message.reply_text(
+                        "❌ Invalid selection. Please enter a number from the list."
+                    )
+                    return
+
+                selected_token = tokens[token_index]
+                await self.claim_execute(update, context, selected_token)
+
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Please enter a number (1, 2, 3, etc.)"
+                )
+            return
+
+    async def claim_show_tokens(self, update: Update, context: ContextTypes.DEFAULT_TYPE, api_key: str):
+        """Show tokens with claimable fees."""
+        try:
+            await update.message.chat.send_action(action="typing")
+
+            async with self.session.get(
+                f"{API_BASE_URL}/agents/fees",
+                headers={'x-api-key': api_key}
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    claimable_fees = data.get('claimableFees', [])
+
+                    # Filter only tokens with fees > 0
+                    tokens_with_fees = [f for f in claimable_fees if f.get('amount', 0) > 0]
+
+                    if not tokens_with_fees:
+                        await update.message.reply_text(
+                            "💰 *No Fees to Claim*\n\n"
+                            "You don't have any claimable fees at this time.\n"
+                            "Use /fees to check your fee status anytime.",
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        context.user_data['step'] = None
+                        return
+
+                    # Store tokens for selection
+                    context.user_data['claim_tokens'] = tokens_with_fees
+                    context.user_data['step'] = 'claim_select_token'
+
+                    # Build list
+                    token_list = []
+                    for idx, fee in enumerate(tokens_with_fees, 1):
+                        symbol = fee.get('tokenSymbol', '???')
+                        name = fee.get('tokenName', 'Unknown')
+                        amount = fee.get('amount', 0)
+                        token_list.append(f"{idx}. ${symbol} ({name[:20]}): {amount:.4f} SOL")
+
+                    message = f"""
+💸 *Select Token to Claim*
+
+{chr(10).join(token_list)}
+
+Reply with the number (1-{len(tokens_with_fees)}) of the token you want to claim fees for.
+                    """
+                    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+                elif resp.status == 401:
+                    await update.message.reply_text("❌ Invalid API key. Please try again with /claim")
+                    context.user_data['step'] = None
+                else:
+                    await update.message.reply_text("❌ Error fetching fees. Please try again.")
+                    context.user_data['step'] = None
+
+        except Exception as e:
+            logger.error(f"Claim show tokens error: {e}")
+            await update.message.reply_text("❌ Error. Please try again with /claim")
+            context.user_data['step'] = None
+
+    async def claim_execute(self, update: Update, context: ContextTypes.DEFAULT_TYPE, token: dict):
+        """Execute fee claim."""
+        try:
+            await update.message.chat.send_action(action="typing")
+
+            api_key = context.user_data.get('claim_api_key')
+            token_mint = token.get('tokenMint') or token.get('token')
+            token_symbol = token.get('tokenSymbol', '???')
+
+            async with self.session.post(
+                f"{API_BASE_URL}/agents/fees/claim",
+                headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
+                json={'tokenMint': token_mint}
+            ) as resp:
+                response_text = await resp.text()
+                logger.info(f"Claim response: {resp.status}")
+
+                if resp.status == 200:
+                    data = json.loads(response_text)
+                    claim = data.get('claim', {})
+                    amount = claim.get('amount', 0)
+                    tx_sig = claim.get('transactionSignature', 'N/A')
+
+                    message = f"""
+✅ *Fees Claimed Successfully!*
+
+Token: ${token_symbol}
+Amount: {amount:.4f} SOL
+
+Transaction:
+`{tx_sig}`
+
+View on Solscan:
+https://solscan.io/tx/{tx_sig}
+
+💰 65% to your wallet, 35% to platform
+                    """
+                    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
+                else:
+                    try:
+                        error_data = json.loads(response_text)
+                        error_msg = error_data.get('error', 'Unknown error')
+                    except:
+                        error_msg = response_text[:200]
+
+                    await update.message.reply_text(
+                        f"❌ *Claim Failed*\n\n{error_msg}\n\nPlease try again with /claim",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+
+        except Exception as e:
+            logger.error(f"Claim execute error: {e}")
+            await update.message.reply_text("❌ Error claiming fees. Please try again with /claim")
+
+        finally:
+            context.user_data['step'] = None
+            context.user_data.pop('claim_api_key', None)
+            context.user_data.pop('claim_tokens', None
 
     async def cmd_launch(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /launch command - Full token launch flow."""

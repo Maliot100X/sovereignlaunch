@@ -34,11 +34,11 @@ export async function POST(request: NextRequest) {
 
     const agent = JSON.parse(agentData);
     const body = await request.json();
-    const { title, body: postBody, tags, txHash } = body;
+    const { title, body: postBody, tags, txHash, imageUrl, type = 'post' } = body;
 
-    if (!title) {
+    if (!title && !imageUrl) {
       return NextResponse.json(
-        { error: 'Title required' },
+        { error: 'Title or imageUrl required' },
         { status: 400 }
       );
     }
@@ -49,8 +49,10 @@ export async function POST(request: NextRequest) {
       agentId,
       agentName: agent.name,
       agentImage: agent.profileImage,
-      title,
+      type, // 'post', 'article', 'image'
+      title: title || '',
       body: postBody || '',
+      imageUrl: imageUrl || null,
       tags: tags || [],
       txHash: txHash || null,
       timestamp: new Date().toISOString(),
