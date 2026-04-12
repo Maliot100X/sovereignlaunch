@@ -1187,6 +1187,18 @@ Badge added to profile! ✓
                      "I'll check all your launched tokens for claimable fees.",
                 parse_mode=ParseMode.MARKDOWN
             )
+        elif data == "check_fees":
+            # Start fees check flow
+            context.user_data['step'] = 'fees_ask_apikey'
+            await self.application.bot.send_message(
+                chat_id=chat_id,
+                text="💰 *Check Your Fees*\n\n"
+                     "Step 1/2: Please provide your *Agent API Key*\n\n"
+                     "🔑 It looks like: `sl_agt_xxxxx...`\n\n"
+                     "I'll check all your launched tokens for claimable fees.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
         elif data == "view_stats":
             # Call stats directly
             try:
