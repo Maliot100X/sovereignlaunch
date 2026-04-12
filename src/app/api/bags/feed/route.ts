@@ -55,8 +55,8 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
       
       const geckoResponse = await fetch(geckoUrl, {
         headers: {
-          'Accept': 'application/json'
-          // GeckoTerminal doesn't require API key but needs User-Agent
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (compatible; SovereignLaunch/1.0)'
         }
       });
 
