@@ -1499,7 +1499,7 @@ https://solscan.io/tx/{tx_sig}
         finally:
             context.user_data['step'] = None
             context.user_data.pop('claim_api_key', None)
-            context.user_data.pop('claim_tokens', None
+            context.user_data.pop('claim_tokens', None)
 
     async def cmd_launch(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /launch command - Full token launch flow."""
