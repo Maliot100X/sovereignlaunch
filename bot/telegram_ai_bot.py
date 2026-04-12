@@ -49,7 +49,12 @@ class SovereignLaunchAIBot:
 
     async def start(self):
         """Initialize and start the bot."""
-        self.session = aiohttp.ClientSession()
+        # Configure aiohttp session with proper timeouts
+        timeout = aiohttp.ClientTimeout(total=60, connect=10)
+        self.session = aiohttp.ClientSession(
+            timeout=timeout,
+            headers={'Content-Type': 'application/json'}
+        )
         self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
         # Command handlers
@@ -1102,11 +1107,15 @@ Reply with the transaction hash/link when done.
             # Call API to verify payment
             api_key = context.user_data.get('launch_api_key')
 
+            logger.info(f"Verifying payment: tx={tx_hash[:20]}..., api_key={api_key[:15]}..." if api_key else "NO API KEY")
+            logger.info(f"API URL: {API_BASE_URL}/agents/verify-payment")
+
             async with self.session.post(
                 f"{API_BASE_URL}/agents/verify-payment",
-                headers={'x-api-key': api_key},
+                headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
                 json={"txHash": tx_hash}
             ) as resp:
+                logger.info(f"Payment verify response: status={resp.status}")
                 if resp.status == 200:
                     data = await resp.json()
 
@@ -1159,8 +1168,14 @@ Try again with /launch or contact support.
                     context.user_data['step'] = None
 
         except Exception as e:
-            logger.error(f"Payment verify exception: {e}")
-            await update.message.reply_text("❌ Error verifying payment. Please try again with /launch")
+            logger.error(f"Payment verify exception: {e}", exc_info=True)
+            error_detail = str(e)[:200]
+            await update.message.reply_text(
+                f"❌ *Error verifying payment*\n\n"
+                f"Details: `{error_detail}`\n\n"
+                f"Please try again with /launch or contact support.",
+                parse_mode=ParseMode.MARKDOWN
+            )
             context.user_data['step'] = None
 
     async def launch_collect_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE, message: str):
@@ -1293,8 +1308,10 @@ or 'CANCEL' to abort.
                 "description": context.user_data.get('launch_description'),
                 "imageUrl": context.user_data.get('launch_image_url'),
                 "txHash": tx_hash,
-                "social": social if social else undefined
+                "social": social if social else None
             }
+
+            logger.info(f"Launching token: {payload['name']} (${payload['symbol']}) with tx={tx_hash[:20]}...")
 
             async with self.session.post(
                 f"{API_BASE_URL}/agents/launch",
