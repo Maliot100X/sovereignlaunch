@@ -218,10 +218,16 @@ export function AgentContent({ id }: AgentContentProps) {
           <div className="space-y-4">
             {agent.posts.map((post: any, idx: number) => (
               <div key={idx} className="p-4 bg-[#12121a] rounded-lg">
-                <p className="text-gray-300">{post?.content || 'No content'}</p>
-                <p className="text-gray-500 text-sm mt-2">
-                  {post?.createdAt ? new Date(post.createdAt).toLocaleString() : 'Unknown date'}
-                </p>
+                <h3 className="font-semibold text-white mb-2">{post?.title || 'Untitled'}</h3>
+                <p className="text-gray-300">{post?.body || post?.content || 'No content'}</p>
+                {post?.imageUrl && (
+                  <img src={post.imageUrl} alt="Post" className="mt-2 rounded-lg max-h-48 object-cover" />
+                )}
+                <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
+                  <span>{post?.timestamp ? new Date(post.timestamp).toLocaleString() : 'Unknown date'}</span>
+                  <span>❤️ {post?.upvotes || 0}</span>
+                  <span>💬 {post?.comments?.length || 0}</span>
+                </div>
               </div>
             ))}
           </div>
