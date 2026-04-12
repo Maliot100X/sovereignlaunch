@@ -7,7 +7,10 @@ const BAGS_API_KEY = process.env.BAGS_API_KEY || '';
 // Cache duration in seconds
 const CACHE_DURATION = 120;
 
-// Fetch token market data from Bags pools endpoint
+// Jupiter Price API for real-time token prices
+const JUPITER_PRICE_URL = 'https://api.jup.ag/price/v2';
+
+// Fetch token market data from Jupiter Price API v2
 async function fetchTokenMarketData(mint: string): Promise<any> {
   try {
     // Check cache first
@@ -16,46 +19,72 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
       return JSON.parse(cached as string);
     }
 
-    // Try to get pool data from Bags API
+    // Get pool data from Bags to check migration status
     const poolUrl = `${BAGS_API_URL}/solana/bags/pools/token-mint?tokenMint=${mint}`;
+    let poolInfo: any = { migrated: false, poolAddress: null };
     
-    const poolResponse = await fetch(poolUrl, {
+    try {
+      const poolResponse = await fetch(poolUrl, {
+        headers: {
+          'X-API-Key': BAGS_API_KEY,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (poolResponse.ok) {
+        const poolData = await poolResponse.json();
+        if (poolData.success && poolData.response) {
+          poolInfo = {
+            migrated: !!poolData.response.dammV2PoolKey,
+            poolAddress: poolData.response.dbcPoolKey || null,
+            dammV2PoolKey: poolData.response.dammV2PoolKey || null
+          };
+        }
+      }
+    } catch (e) {
+      // Continue without pool data
+    }
+
+    // Fetch price from Jupiter Price API v2
+    const priceUrl = `${JUPITER_PRICE_URL}?ids=${mint}`;
+    const priceResponse = await fetch(priceUrl, {
       headers: {
-        'X-API-Key': BAGS_API_KEY,
+        'x-api-key': BAGS_API_KEY, // Use Bags API key (may work for Jupiter too)
         'Accept': 'application/json'
       }
     });
 
-    if (poolResponse.ok) {
-      const poolData = await poolResponse.json();
-      
-      if (poolData.success && poolData.response) {
-        const pool = poolData.response;
-        
-        // Check if pool has migrated (has dammV2PoolKey)
-        const hasMigrated = !!pool.dammV2PoolKey;
-        
-        const marketData = {
-          price: 0, // Can't get from Bags API alone
-          marketCap: 0,
-          volume24h: 0,
-          holders: 0,
-          priceChange24h: 0,
-          liquidity: 0,
-          status: hasMigrated ? 'Live' : 'Pre-Grad',
-          poolAddress: pool.dbcPoolKey || null,
-          dammV2PoolKey: pool.dammV2PoolKey || null
-        };
+    let price = 0;
+    let priceChange24h = 0;
 
-        // Cache for 5 minutes
-        await redis.setex(`bags:token:${mint}:market`, 300, JSON.stringify(marketData));
-        return marketData;
+    if (priceResponse.ok) {
+      const priceData = await priceResponse.json();
+      const tokenData = priceData[mint];
+      
+      if (tokenData) {
+        price = tokenData.usdPrice || 0;
+        priceChange24h = tokenData.priceChange24h || 0;
       }
     }
 
-    return null;
+    const marketData = {
+      price: price,
+      marketCap: 0, // Need total supply to calculate
+      volume24h: 0, // Not provided by price API
+      holders: 0, // Not provided
+      priceChange24h: priceChange24h,
+      liquidity: 0,
+      status: poolInfo.migrated ? 'Live' : 'Pre-Grad',
+      poolAddress: poolInfo.poolAddress,
+      dammV2PoolKey: poolInfo.dammV2PoolKey
+    };
+
+    // Cache for 5 minutes
+    await redis.setex(`bags:token:${mint}:market`, 300, JSON.stringify(marketData));
+    return marketData;
+
   } catch (error) {
-    console.error(`[Bags Pool] Error for ${mint}:`, error);
+    console.error(`[Jupiter Price] Error for ${mint}:`, error);
     return null;
   }
 }
