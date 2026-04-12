@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
         total: validTokens.length,
         hasMore: allTokens.length > limit
       },
-      source: 'bags-api-v2-fixed',
+      source: 'bags-api-v2-gecko',
       cachedAt: Math.floor(Date.now() / 1000)
     };
 
