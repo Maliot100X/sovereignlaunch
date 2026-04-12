@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import redis from '@/lib/redis';
+import { Connection, PublicKey } from '@solana/web3.js';
+import DLMM from '@meteora-ag/dlmm';
 
 const BAGS_API_URL = process.env.BAGS_API_URL || 'https://public-api-v2.bags.fm/api/v1';
 const BAGS_API_KEY = process.env.BAGS_API_KEY || 'bags_prod_YhTVMoennloNU06kSEDqQ8g_Bdd7_5g7RdcMT1EBr4o';
+const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
-// Cache duration in seconds (2 minutes for feed, 5 minutes for individual tokens)
+// Cache duration in seconds
 const CACHE_DURATION = 120;
 
-// Jupiter API configuration
-const JUPITER_API_KEY=proces..._KEY || '';
+// Solana connection
+const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
 
-// Fetch token market data from Jupiter (works with Bags tokens!)
-async function fetchTokenMarketData(mint: string): Promise<any> {
+// Fetch token market data from Meteora DLMM pools
+async function fetchTokenMarketData(mint: string, poolAddress?: string): Promise<any> {
   try {
     // Check cache first
     const cached = await redis.get(`bags:token:${mint}:market`);
@@ -19,72 +22,80 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
       return JSON.parse(cached as string);
     }
 
-    // Use Jupiter CLI which we confirmed works
-    // This calls the internal Jupiter API that has all token data
-    const { execSync } = require('child_process');
-    
-    try {
-      // Run Jupiter CLI to get token data
-      const result = execSync(
-        `jup spot tokens --mint ${mint} --format json 2>/dev/null || jup spot tokens --search ${mint} --format json 2>/dev/null`,
-        { encoding: 'utf-8', timeout: 10000 }
-      );
-      
-      const tokens = JSON.parse(result);
-      const token = Array.isArray(tokens) ? tokens[0] : tokens;
-      
-      if (token && token.usdPrice) {
+    // If we have a pool address, fetch from Meteora directly
+    if (poolAddress) {
+      try {
+        // Load DLMM pool
+        const pool = await DLMM.create(connection, new PublicKey(poolAddress));
+        
+        // Get pool info
+        const tokenX = pool.tokenX;
+        const tokenY = pool.tokenY;
+        
+        // Get pool reserves
+        const reserveX = await connection.getTokenAccountBalance(pool.lbPair.reserveX);
+        const reserveY = await connection.getTokenAccountBalance(pool.lbPair.reserveY);
+        
+        // Calculate price
+        const reserveXValue = Number(reserveX.value.amount) / Math.pow(10, tokenX.decimal);
+        const reserveYValue = Number(reserveY.value.amount) / Math.pow(10, tokenY.decimal);
+        
+        // Price = reserveY / reserveX (tokenY per tokenX)
+        const price = reserveXValue > 0 ? reserveYValue / reserveXValue : 0;
+        
+        // Get active bin price (more accurate)
+        const activeBin = await pool.getActiveBin();
+        const binPrice = activeBin.price;
+        
+        // Determine which token is our target
+        const isTokenX = tokenX.mint.toBase58() === mint;
+        const tokenPrice = isTokenX ? binPrice : 1 / binPrice;
+        
+        // Calculate TVL (rough estimate)
+        const tvl = reserveXValue + (reserveYValue * (isTokenX ? 1/binPrice : binPrice));
+        
         const marketData = {
-          price: Number(token.usdPrice || 0),
-          marketCap: Number(token.mcap || token.marketCap || 0),
-          volume24h: Number(token.stats24h?.buyVolume || 0) + Number(token.stats24h?.sellVolume || 0),
-          holders: Number(token.holderCount || 0),
-          priceChange24h: Number(token.stats24h?.priceChange || 0),
-          liquidity: Number(token.liquidity || 0),
-          status: 'Live'
+          price: tokenPrice,
+          marketCap: 0, // Need total supply to calculate
+          volume24h: 0, // Need historical data
+          holders: 0, // Not available from pool
+          priceChange24h: 0,
+          liquidity: tvl,
+          status: 'Live',
+          poolAddress: poolAddress
         };
 
         // Cache for 5 minutes
         await redis.setex(`bags:token:${mint}:market`, 300, JSON.stringify(marketData));
         return marketData;
+        
+      } catch (poolError) {
+        console.error(`[Meteora] Pool fetch error for ${mint}:`, poolError);
       }
-    } catch (cliError) {
-      console.log(`[Jupiter CLI] Failed for ${mint}, trying fallback...`);
     }
 
-    // Fallback: Try Jupiter REST API directly
-    const url = `https://api.jup.ag/tokens/v1/token/${mint}`;
-    const headers: any = {
-      'Accept': 'application/json',
-    };
-    if (JUPITER_API_KEY) {
-      headers['Authorization'] = `Bearer ${JUPITER_API_KEY}`;
+    // Fallback: Try to find pool by mint
+    try {
+      // Search for pools containing this mint
+      // This is a simplified approach - in production, you'd query a pool index
+      const pools = await DLMM.getLbPairs(connection);
+      
+      for (const pool of pools) {
+        const poolMintX = pool.account.tokenXMint.toBase58();
+        const poolMintY = pool.account.tokenYMint.toBase58();
+        
+        if (poolMintX === mint || poolMintY === mint) {
+          // Found a pool with this token
+          return await fetchTokenMarketData(mint, pool.publicKey.toBase58());
+        }
+      }
+    } catch (searchError) {
+      console.error(`[Meteora] Pool search error for ${mint}:`, searchError);
     }
 
-    const response = await fetch(url, { headers, next: { revalidate: 60 } });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const token = await response.json();
-
-    const marketData = {
-      price: Number(token.usdPrice || token.price || 0),
-      marketCap: Number(token.mcap || token.marketCap || token.fdv || 0),
-      volume24h: Number(token.stats24h?.buyVolume || 0) + Number(token.stats24h?.sellVolume || 0),
-      holders: Number(token.holderCount || token.holders || 0),
-      priceChange24h: Number(token.stats24h?.priceChange || token.priceChange24h || 0),
-      liquidity: Number(token.liquidity || 0),
-      status: 'Live'
-    };
-
-    // Cache market data for 5 minutes
-    await redis.setex(`bags:token:${mint}:market`, 300, JSON.stringify(marketData));
-
-    return marketData;
+    return null;
   } catch (error) {
-    console.error(`[Jupiter] Error fetching market data for ${mint}:`, error);
+    console.error(`[Meteora] Error fetching market data for ${mint}:`, error);
     return null;
   }
 }
@@ -94,7 +105,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
     const skipCache = searchParams.get('refresh') === 'true';
-    const requireMarketData = searchParams.get('requireMarket') !== 'false'; // Default true
+    const requireMarketData = searchParams.get('requireMarket') !== 'false';
 
     // Try to get cached data first
     if (!skipCache) {
@@ -134,14 +145,16 @@ export async function GET(request: NextRequest) {
     // Get raw tokens from feed
     const allTokens = (data.tokens || data.data || data.response || []);
 
-    // Enrich tokens with real market data
+    // Enrich tokens with real market data from Meteora
     const enrichedTokens = await Promise.all(
       allTokens.slice(0, limit * 2).map(async (token: any) => {
         const mint = String(token.tokenMint || token.address || token.mint || '');
+        const poolAddress = token.dbcPoolKey || token.poolAddress;
+        
         if (!mint) return null;
 
-        // Fetch real market data
-        const marketData = await fetchTokenMarketData(mint);
+        // Fetch real market data from Meteora
+        const marketData = await fetchTokenMarketData(mint, poolAddress);
 
         // Skip tokens with no market data if requireMarketData is true
         if (requireMarketData && marketData && marketData.volume24h === 0 && marketData.marketCap === 0) {
@@ -153,7 +166,7 @@ export async function GET(request: NextRequest) {
           name: String(token.name || 'Unknown Token'),
           symbol: String(token.symbol || '???'),
           price: marketData?.price || Number(token.price || token.currentPrice || 0),
-          marketCap: marketData?.marketCap || Number(token.marketCap || token.market_cap || 0),
+          marketCap: marketData?.marketCap || Number(token.marketCap || token.market_cap || token.fdv || 0),
           volume24h: marketData?.volume24h || Number(token.volume24h || token.volume_24h || token.volume || 0),
           holders: marketData?.holders || Number(token.holders || token.holderCount || 0),
           image: String(token.imageUrl || token.image || token.logoURI || '/placeholder-token.png'),
@@ -163,58 +176,45 @@ export async function GET(request: NextRequest) {
           launchedAt: String(token.launchedAt || token.createdAt || token.timestamp || new Date().toISOString()),
           priceChange24h: marketData?.priceChange24h || Number(token.priceChange24h || token.price_change_24h || 0),
           liquidity: marketData?.liquidity || Number(token.liquidity || 0),
-          address: mint
+          address: mint,
+          poolAddress: poolAddress
         };
       })
     );
 
-    // Filter out nulls and apply limit
-    const tokens = enrichedTokens
-      .filter(Boolean)
-      .slice(0, limit);
+    // Filter out nulls and limit
+    const validTokens = enrichedTokens.filter(Boolean).slice(0, limit);
 
     // Calculate totals
-    const totalVolume = tokens.reduce((sum, t) => sum + (t.volume24h || 0), 0);
-    const totalMarketCap = tokens.reduce((sum, t) => sum + (t.marketCap || 0), 0);
+    const totals = {
+      marketCap: validTokens.reduce((sum, t) => sum + (t.marketCap || 0), 0),
+      volume24h: validTokens.reduce((sum, t) => sum + (t.volume24h || 0), 0),
+      tvl: validTokens.reduce((sum, t) => sum + (t.liquidity || 0), 0)
+    };
 
     const result = {
       success: true,
-      tokens,
-      totals: {
-        volume24h: totalVolume,
-        marketCap: totalMarketCap,
-        count: tokens.length
-      },
+      tokens: validTokens,
+      totals,
       pagination: {
-        cursor: data.cursor || data.nextCursor || null,
-        hasMore: data.hasMore || false
+        page: 1,
+        limit,
+        total: validTokens.length,
+        hasMore: allTokens.length > limit
       },
-      source: 'bags-api',
-      cachedAt: Math.floor(Date.now() / 1000),
-      note: 'Market data (price/volume) fetched from BAGS token endpoints'
+      source: 'bags-api-meteora',
+      cachedAt: Math.floor(Date.now() / 1000)
     };
 
-    // Cache in Redis
+    // Cache the result
     await redis.setex('bags:feed:cache', CACHE_DURATION, JSON.stringify(result));
 
     return NextResponse.json(result);
 
   } catch (error) {
     console.error('[BAGS Feed] Error:', error);
-
-    // Try to serve stale cache if available
-    const staleCache = await redis.get('bags:feed:cache');
-    if (staleCache) {
-      const parsed = JSON.parse(staleCache as string);
-      return NextResponse.json({
-        ...parsed,
-        stale: true,
-        error: 'Serving cached data due to API error'
-      });
-    }
-
     return NextResponse.json(
-      { error: 'Failed to fetch BAGS feed', tokens: [] },
+      { error: 'Failed to fetch token feed', details: String(error) },
       { status: 500 }
     );
   }
