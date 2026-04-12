@@ -77,6 +77,7 @@ export function AgentContent({ id }: AgentContentProps) {
   const name = agent?.name || 'Unknown Agent';
   const bio = agent?.bio || '';
   const profileImage = agent?.profileImage || '/default-avatar.png';
+  const backgroundImage = agent?.backgroundImage || '';
   const twitterVerified = !!(agent?.twitterVerified || agent?.verified);
   const twitterHandle = agent?.twitterHandle || '';
   const wallet = agent?.wallet || '';
@@ -84,56 +85,78 @@ export function AgentContent({ id }: AgentContentProps) {
 
   return (
     <div>
-      {/* Profile Card */}
-      <div className="card p-8 mb-8">
-        <div className="flex items-start gap-6">
-          <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-[#ffd700] to-[#ff6b35] flex items-center justify-center flex-shrink-0">
-            {profileImage && profileImage !== '/default-avatar.png' ? (
-              <img
-                src={profileImage}
-                alt={name}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  target.parentElement?.classList.add('flex', 'items-center', 'justify-center');
-                  const span = document.createElement('span');
-                  span.className = 'text-4xl font-bold text-black';
-                  span.textContent = name.charAt(0).toUpperCase();
-                  target.parentElement?.appendChild(span);
-                }}
-              />
-            ) : (
-              <span className="text-4xl font-bold text-black">{name.charAt(0).toUpperCase()}</span>
-            )}
+      {/* Profile Card with Background */}
+      <div className="card p-0 mb-8 overflow-hidden">
+        {/* Background Image */}
+        {backgroundImage ? (
+          <div className="h-48 w-full relative">
+            <img
+              src={backgroundImage}
+              alt="Background"
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0f] to-transparent"></div>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <h1 className="text-3xl font-bold text-white">@{name}</h1>
-              {twitterVerified && (
-                <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600/20 text-blue-400 rounded-full text-sm font-medium border border-blue-600/30">
-                  <CheckCircle className="w-4 h-4" />
-                  Verified
-                </span>
+        ) : (
+          <div className="h-32 w-full bg-gradient-to-r from-[#ffd700]/20 via-[#ff6b35]/20 to-[#ffd700]/20"></div>
+        )}
+
+        {/* Profile Content */}
+        <div className="p-8 -mt-12 relative">
+          <div className="flex items-start gap-6">
+            {/* Profile Image */}
+            <div className="w-24 h-24 rounded-full overflow-hidden bg-gradient-to-br from-[#ffd700] to-[#ff6b35] flex items-center justify-center flex-shrink-0 border-4 border-[#0a0a0f] shadow-2xl">
+              {profileImage && profileImage !== '/default-avatar.png' ? (
+                <img
+                  src={profileImage}
+                  alt={name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    target.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                    const span = document.createElement('span');
+                    span.className = 'text-4xl font-bold text-black';
+                    span.textContent = name.charAt(0).toUpperCase();
+                    target.parentElement?.appendChild(span);
+                  }}
+                />
+              ) : (
+                <span className="text-4xl font-bold text-black">{name.charAt(0).toUpperCase()}</span>
               )}
             </div>
 
-            {twitterHandle && (
-              <a
-                href={`https://twitter.com/${twitterHandle.replace('@', '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-blue-400 hover:text-blue-300 mb-2"
-              >
-                <Twitter className="w-4 h-4" />
-                {twitterHandle}
-              </a>
-            )}
+            <div className="flex-1 min-w-0 pt-2">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <h1 className="text-3xl font-bold text-white">@{name}</h1>
+                {twitterVerified && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600/20 text-blue-400 rounded-full text-sm font-medium border border-blue-600/30">
+                    <CheckCircle className="w-4 h-4" />
+                    Verified
+                  </span>
+                )}
+              </div>
 
-            {wallet && (
-              <p className="text-gray-400 font-mono text-sm mb-3">{formatAddress(wallet)}</p>
-            )}
-            {bio && <p className="text-gray-300 mb-4">{bio}</p>}
+              {twitterHandle && (
+                <a
+                  href={`https://twitter.com/${twitterHandle.replace('@', '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-blue-400 hover:text-blue-300 mb-2"
+                >
+                  <Twitter className="w-4 h-4" />
+                  {twitterHandle}
+                </a>
+              )}
+
+              {wallet && (
+                <p className="text-gray-400 font-mono text-sm mb-3">{formatAddress(wallet)}</p>
+              )}
+              {bio && <p className="text-gray-300 mb-4">{bio}</p>}
+            </div>
           </div>
         </div>
       </div>

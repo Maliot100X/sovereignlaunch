@@ -1,23 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { agentStore, verifyApiKey } from '@/lib/store';
+import redis from '@/lib/redis';
 
+// POST: Update agent profile
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
-    const auth = verifyApiKey(apiKey || '');
 
-    if (!auth.valid || !auth.agent) {
+    if (!apiKey) {
       return NextResponse.json(
-        { error: auth.error || 'Unauthorized' },
+        { error: 'API key required in x-api-key header' },
         { status: 401 }
       );
     }
 
-    const agent = auth.agent;
+    // Find agent by API key
+    const agentId = await redis.get(`agent:apikey:${apiKey}`);
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401 }
+      );
+    }
+
+    // Get agent data
+    const agentData = await redis.get(`agent:${agentId}`);
+    if (!agentData) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
+      );
+    }
+
+    const agent = JSON.parse(agentData);
     const body = await request.json();
     const {
       bio,
       profileImage,
+      backgroundImage,
       twitterHandle,
       settings,
       autoLaunch,
@@ -36,13 +55,19 @@ export async function POST(request: NextRequest) {
 
     // Update profile image
     if (profileImage !== undefined) {
-      (agent as any).profileImage = profileImage;
+      agent.profileImage = profileImage;
       updates.push('profileImage');
+    }
+
+    // Update background image
+    if (backgroundImage !== undefined) {
+      agent.backgroundImage = backgroundImage;
+      updates.push('backgroundImage');
     }
 
     // Update Twitter handle (if not already verified)
     if (twitterHandle !== undefined && !agent.twitterVerified) {
-      (agent as any).twitterHandle = twitterHandle.replace('@', '').trim();
+      agent.twitterHandle = twitterHandle.replace('@', '').trim();
       updates.push('twitterHandle');
     }
 
@@ -54,22 +79,25 @@ export async function POST(request: NextRequest) {
 
     // Individual setting updates
     if (autoLaunch !== undefined) {
+      agent.settings = agent.settings || {};
       agent.settings.autoLaunch = autoLaunch;
       updates.push('autoLaunch');
     }
 
     if (autoTrade !== undefined) {
+      agent.settings = agent.settings || {};
       agent.settings.autoTrade = autoTrade;
       updates.push('autoTrade');
     }
 
     if (announceLaunches !== undefined) {
+      agent.settings = agent.settings || {};
       agent.settings.announceLaunches = announceLaunches;
       updates.push('announceLaunches');
     }
 
-    // Save updated agent
-    agentStore.set(agent.id, agent);
+    // Save updated agent to Redis
+    await redis.set(`agent:${agentId}`, JSON.stringify(agent));
 
     return NextResponse.json({
       success: true,
@@ -79,7 +107,8 @@ export async function POST(request: NextRequest) {
         id: agent.id,
         name: agent.name,
         bio: agent.bio,
-        profileImage: (agent as any).profileImage || null,
+        profileImage: agent.profileImage || null,
+        backgroundImage: agent.backgroundImage || null,
         twitterHandle: agent.twitterHandle || null,
         twitterVerified: agent.twitterVerified || false,
         settings: agent.settings,
@@ -88,7 +117,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error updating profile:', error);
+    console.error('[Update Profile] Error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -96,20 +125,37 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Get current profile
+// GET: Get current profile
 export async function GET(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
-    const auth = verifyApiKey(apiKey || '');
 
-    if (!auth.valid || !auth.agent) {
+    if (!apiKey) {
       return NextResponse.json(
-        { error: auth.error || 'Unauthorized' },
+        { error: 'API key required' },
         { status: 401 }
       );
     }
 
-    const agent = auth.agent;
+    // Find agent by API key
+    const agentId = await redis.get(`agent:apikey:${apiKey}`);
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401 }
+      );
+    }
+
+    // Get agent data
+    const agentData = await redis.get(`agent:${agentId}`);
+    if (!agentData) {
+      return NextResponse.json(
+        { error: 'Agent not found' },
+        { status: 404 }
+      );
+    }
+
+    const agent = JSON.parse(agentData);
 
     return NextResponse.json({
       success: true,
@@ -119,20 +165,22 @@ export async function GET(request: NextRequest) {
         wallet: agent.wallet,
         email: agent.email,
         bio: agent.bio,
-        profileImage: (agent as any).profileImage || null,
+        profileImage: agent.profileImage || null,
+        backgroundImage: agent.backgroundImage || null,
         twitterHandle: agent.twitterHandle || null,
         twitterVerified: agent.twitterVerified || false,
-        twitterVerifiedAt: (agent as any).twitterVerifiedAt || null,
-        verified: (agent as any).verified || false,
+        twitterVerifiedAt: agent.verifiedAt || null,
+        verified: agent.twitterVerified || false,
         stats: agent.stats,
         settings: agent.settings,
         skills: agent.skills,
-        balance: (agent as any).balance || 0,
+        balance: agent.balance || 0,
         createdAt: agent.createdAt,
-        apiKey: agent.apiKey,
+        apiKey: apiKey,
         canUpdate: {
           bio: true,
           profileImage: true,
+          backgroundImage: true,
           twitterHandle: !agent.twitterVerified, // Can't change if verified
           settings: true
         }
@@ -140,7 +188,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error getting profile:', error);
+    console.error('[Update Profile GET] Error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

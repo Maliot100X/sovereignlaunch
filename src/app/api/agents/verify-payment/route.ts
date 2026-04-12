@@ -1,236 +1,201 @@
 import { NextRequest, NextResponse } from 'next/server';
+import redis from '@/lib/redis';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { agentStore, verifyApiKey } from '@/lib/store';
 
 const PLATFORM_WALLET = 'Dgk9bcm6H6LVaamyXQWeNCXh2HuTFoE4E7Hu7Pw1aiPx';
-const MIN_PAYMENT_SOL = 0.1; // Minimum payment to verify
-const PAYMENT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const LAUNCH_FEE_SOL = 0.05;
 
-// Helper to convert account keys to array
-function getKeysArray(accountKeys: any): any[] {
-  return Array.isArray(accountKeys) ? accountKeys : (accountKeys?.staticAccountKeys || []);
-}
-
-// Pending payment tracking
-const pendingPayments = new Map<string, {
-  agentId: string;
-  amount: number;
-  timestamp: number;
-  purpose: string;
-}>();
-
-// Start payment verification request
+// POST: Verify payment transaction by txHash
 export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-api-key');
-    const auth = verifyApiKey(apiKey || '');
-    if (!auth.valid || !auth.agent) {
+
+    if (!apiKey) {
       return NextResponse.json(
-        { error: auth.error || 'Agent not found' },
+        { error: 'API key required in x-api-key header' },
         { status: 401 }
       );
     }
 
-    const agent = auth.agent;
-    const body = await request.json();
-    const { amount, purpose = 'token_launch' } = body;
-
-    if (!amount || amount < MIN_PAYMENT_SOL) {
+    // Find agent by API key
+    const agentId = await redis.get(`agent:apikey:${apiKey}`);
+    if (!agentId) {
       return NextResponse.json(
-        { error: `Minimum payment is ${MIN_PAYMENT_SOL} SOL` },
-        { status: 400 }
+        { error: 'Invalid API key' },
+        { status: 401 }
       );
     }
 
-    // Generate unique payment ID
-    const paymentId = `pay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    // Store pending payment
-    pendingPayments.set(paymentId, {
-      agentId: agent.id,
-      amount,
-      timestamp: Date.now(),
-      purpose
-    });
-
-    // Auto-cleanup after timeout
-    setTimeout(() => pendingPayments.delete(paymentId), PAYMENT_TIMEOUT_MS);
-
-    return NextResponse.json({
-      success: true,
-      paymentId,
-      status: 'pending',
-      instructions: {
-        platformWallet: PLATFORM_WALLET,
-        amount,
-        purpose,
-        message: `SovereignLaunch ${purpose} - ${agent.name}`,
-        timeout: '5 minutes'
-      },
-      verifyUrl: `/api/agents/verify-payment?paymentId=${paymentId}`
-    });
-
-  } catch (error) {
-    console.error('Error creating payment request:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
-  }
-}
-
-// Verify payment was received
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const paymentId = searchParams.get('paymentId');
-    const txHash = searchParams.get('txHash');
-
-    if (!paymentId) {
-      return NextResponse.json(
-        { error: 'paymentId required' },
-        { status: 400 }
-      );
-    }
-
-    const pending = pendingPayments.get(paymentId);
-    if (!pending) {
-      return NextResponse.json(
-        { error: 'Payment request expired or not found' },
-        { status: 404 }
-      );
-    }
-
-    const agent = agentStore.getById(pending.agentId);
-    if (!agent) {
+    // Get agent data
+    const agentData = await redis.get(`agent:${agentId}`);
+    if (!agentData) {
       return NextResponse.json(
         { error: 'Agent not found' },
         { status: 404 }
       );
     }
 
-    // Check for payment on-chain
+    const agent = JSON.parse(agentData);
+    const agentWallet = agent.wallet;
+
+    if (!agentWallet) {
+      return NextResponse.json(
+        { error: 'Agent has no wallet configured' },
+        { status: 400 }
+      );
+    }
+
+    const body = await request.json();
+    const { txHash } = body;
+
+    if (!txHash) {
+      return NextResponse.json(
+        { error: 'txHash required' },
+        { status: 400 }
+      );
+    }
+
+    // Connect to Solana
     const connection = new Connection(
-      process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
+      process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+      'confirmed'
     );
 
-    let verified = false;
-    let foundTxHash = txHash;
+    // Get transaction
+    const tx = await connection.getTransaction(txHash, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0
+    });
 
-    if (txHash) {
-      // Verify specific transaction
-      try {
-        const tx = await connection.getTransaction(txHash, {
-          commitment: 'confirmed'
-        });
-
-        if (tx && tx.meta) {
-          // Check if transaction sent SOL to platform wallet
-          const postBalances = tx.meta.postBalances;
-          const preBalances = tx.meta.preBalances;
-          const accountKeys = getKeysArray(tx.transaction.message.getAccountKeys());
-
-          const platformWalletIndex = accountKeys.findIndex(
-            (key) => key.toString() === PLATFORM_WALLET
-          );
-
-          if (platformWalletIndex >= 0) {
-            const balanceChange = (postBalances[platformWalletIndex] - preBalances[platformWalletIndex]) / LAMPORTS_PER_SOL;
-            if (balanceChange >= pending.amount * 0.99) { // Allow small variance for fees
-              verified = true;
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error verifying transaction:', err);
-      }
-    } else {
-      // Look for recent payments to platform wallet from agent wallet
-      const signatures = await connection.getSignaturesForAddress(
-        new PublicKey(PLATFORM_WALLET),
-        { limit: 20 }
-      );
-
-      for (const sig of signatures) {
-        try {
-          const tx = await connection.getTransaction(sig.signature, {
-            commitment: 'confirmed'
-          });
-
-          if (tx && tx.meta && tx.blockTime) {
-            // Check if transaction is within timeout window
-            const txTime = tx.blockTime * 1000;
-            if (txTime < pending.timestamp || txTime > pending.timestamp + PAYMENT_TIMEOUT_MS) {
-              continue;
-            }
-
-            // Check sender is agent wallet
-            const accountKeys = getKeysArray(tx.transaction.message.getAccountKeys());
-            const senderIndex = accountKeys.findIndex(
-              (key) => key.toString() === agent.wallet
-            );
-
-            if (senderIndex >= 0) {
-              const postBalances = tx.meta.postBalances;
-              const preBalances = tx.meta.preBalances;
-              const platformWalletIndex = accountKeys.findIndex(
-                (key) => key.toString() === PLATFORM_WALLET
-              );
-
-              if (platformWalletIndex >= 0) {
-                const balanceChange = (postBalances[platformWalletIndex] - preBalances[platformWalletIndex]) / LAMPORTS_PER_SOL;
-                if (balanceChange >= pending.amount * 0.99) {
-                  verified = true;
-                  foundTxHash = sig.signature;
-                  break;
-                }
-              }
-            }
-          }
-        } catch (err) {
-          continue;
-        }
-      }
-    }
-
-    if (verified) {
-      // Mark payment as verified
-      pendingPayments.delete(paymentId);
-
-      // Update agent balance
-      (agent as any).balance = ((agent as any).balance || 0) + pending.amount;
-
+    if (!tx || !tx.meta) {
       return NextResponse.json({
-        success: true,
-        verified: true,
-        paymentId,
-        txHash: foundTxHash,
-        amount: pending.amount,
-        purpose: pending.purpose,
-        agent: {
-          id: agent.id,
-          name: agent.name,
-          wallet: agent.wallet
-        },
-        message: 'Payment verified successfully. You can now launch tokens.',
-        platformWallet: PLATFORM_WALLET
-      });
+        valid: false,
+        error: 'Transaction not found or not confirmed yet. Please wait a moment and try again.',
+        txHash
+      }, { status: 404 });
     }
 
-    // Not yet verified
+    // Get account keys from transaction
+    const accountKeys = tx.transaction.message.getAccountKeys();
+    const keysArray = Array.from(accountKeys);
+
+    // Find sender (first account is usually signer)
+    const senderIndex = 0;
+    const sender = keysArray[senderIndex]?.toString();
+
+    // Find platform wallet index
+    const platformWalletIndex = keysArray.findIndex(
+      (key) => key.toString() === PLATFORM_WALLET
+    );
+
+    if (platformWalletIndex < 0) {
+      return NextResponse.json({
+        valid: false,
+        error: 'Payment was not sent to the platform wallet. Please send to: ' + PLATFORM_WALLET,
+        txHash,
+        expectedWallet: PLATFORM_WALLET
+      }, { status: 400 });
+    }
+
+    // Check if sender matches agent's registered wallet
+    const senderMatchesAgent = sender === agentWallet;
+
+    // Calculate amount received by platform wallet
+    const preBalance = tx.meta.preBalances[platformWalletIndex] || 0;
+    const postBalance = tx.meta.postBalances[platformWalletIndex] || 0;
+    const amountReceived = (postBalance - preBalance) / LAMPORTS_PER_SOL;
+
+    // Check minimum payment (allow small variance for fees)
+    const minRequired = LAUNCH_FEE_SOL * 0.99;
+
+    if (amountReceived < minRequired) {
+      return NextResponse.json({
+        valid: false,
+        error: `Payment amount insufficient. Required: ${LAUNCH_FEE_SOL} SOL, Received: ${amountReceived.toFixed(6)} SOL`,
+        txHash,
+        amountReceived,
+        required: LAUNCH_FEE_SOL,
+        sender,
+        senderMatchesAgent
+      }, { status: 400 });
+    }
+
+    // All checks passed
     return NextResponse.json({
-      success: true,
-      verified: false,
-      paymentId,
-      status: 'pending',
+      valid: true,
+      amount: amountReceived,
+      sender,
+      senderMatchesAgent,
+      txHash,
+      confirmed: true,
       platformWallet: PLATFORM_WALLET,
-      requiredAmount: pending.amount,
-      timeRemaining: Math.max(0, pending.timestamp + PAYMENT_TIMEOUT_MS - Date.now()),
-      message: 'Payment not yet detected. Send SOL to the platform wallet and check again.'
+      agentWallet,
+      message: senderMatchesAgent
+        ? 'Payment verified successfully!'
+        : 'Payment verified, but sender wallet does not match your registered agent wallet. This is okay but ensure you own this wallet.'
     });
 
   } catch (error) {
-    console.error('Error verifying payment:', error);
+    console.error('[Verify Payment] Error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error', message: (error as Error).message },
+      { status: 500 }
+    );
+  }
+}
+
+// GET: Check payment status (optional polling endpoint)
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const txHash = searchParams.get('txHash');
+
+    if (!txHash) {
+      return NextResponse.json(
+        { error: 'txHash required as query parameter' },
+        { status: 400 }
+      );
+    }
+
+    // Connect to Solana
+    const connection = new Connection(
+      process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+      'confirmed'
+    );
+
+    // Get transaction
+    const tx = await connection.getTransaction(txHash, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0
+    });
+
+    if (!tx) {
+      return NextResponse.json({
+        found: false,
+        confirmed: false,
+        txHash
+      });
+    }
+
+    if (!tx.meta) {
+      return NextResponse.json({
+        found: true,
+        confirmed: false,
+        txHash
+      });
+    }
+
+    // Transaction confirmed
+    return NextResponse.json({
+      found: true,
+      confirmed: true,
+      txHash,
+      blockTime: tx.blockTime,
+      slot: tx.slot
+    });
+
+  } catch (error) {
+    console.error('[Verify Payment GET] Error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
