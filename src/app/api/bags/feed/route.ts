@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import redis from '@/lib/redis';
 
 const BAGS_API_URL = process.env.BAGS_API_URL || 'https://public-api-v2.bags.fm/api/v1';
-const BAGS_API_KEY = process.env.BAGS_API_KEY || 'bags_prod_YhTVMoennloNU06kSEDqQ8g_Bdd7_5g7RdcMT1EBr4o';
+const BAGS_API_KEY = process.env.BAGS_API_KEY || '';
 
 // Cache duration in seconds
 const CACHE_DURATION = 120;
