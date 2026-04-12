@@ -7,11 +7,10 @@ const BAGS_API_KEY = process.env.BAGS_API_KEY || 'bags_prod_YhTVMoennloNU06kSEDq
 // Cache duration in seconds (2 minutes for feed, 5 minutes for individual tokens)
 const CACHE_DURATION = 120;
 
-// Jupiter API for real-time token prices
-const JUPITER_API_KEY = process.env.JUPITER_API_KEY || '';
-const JUPITER_API_URL = 'https://api.jup.ag';
+// CoinGecko API for real-time token prices (FREE, RELIABLE)
+const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY || ''; // Optional: for higher rate limits
 
-// Fetch individual token data with market info from Jupiter
+// Fetch token market data from CoinGecko (proven to work!)
 async function fetchTokenMarketData(mint: string): Promise<any> {
   try {
     // Check cache first
@@ -20,34 +19,41 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
       return JSON.parse(cached as string);
     }
 
-    // Use Jupiter tokens API for real market data
-    const url = `${JUPITER_API_URL}/tokens/v1/token/${mint}`;
+    // CoinGecko API - free tier available
+    // For Solana tokens, we need to use the contract address
+    const url = `https://api.coingecko.com/api/v3/simple/token_price/solana?contract_addresses=${mint}&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
+    
     const headers: any = {
       'Accept': 'application/json',
-      'Content-Type': 'application/json'
     };
     
-    // Add API key if available
-    if (JUPITER_API_KEY) {
-      headers['Authorization'] = `Bearer ${JUPITER_API_KEY}`;
+    // Add API key if available (for pro users)
+    if (COINGECKO_API_KEY) {
+      headers['x-cg-pro-api-key'] = COINGECKO_API_KEY;
     }
 
     const response = await fetch(url, { headers });
 
     if (!response.ok) {
-      // Fallback: try Jupiter price API
-      return await fetchJupiterPrice(mint);
+      console.error(`[CoinGecko] API error for ${mint}: ${response.status}`);
+      return null;
     }
 
-    const token = await response.json();
+    const data = await response.json();
+    const tokenData = data[mint.toLowerCase()];
+    
+    if (!tokenData) {
+      // Token not found on CoinGecko
+      return null;
+    }
 
     const marketData = {
-      price: Number(token.usdPrice || token.price || 0),
-      marketCap: Number(token.mcap || token.marketCap || token.fdv || 0),
-      volume24h: Number(token.stats24h?.volumeChange || token.volume24h || token.volume || 0),
-      holders: Number(token.holderCount || token.holders || 0),
-      priceChange24h: Number(token.stats24h?.priceChange || token.priceChange24h || 0),
-      liquidity: Number(token.liquidity || 0),
+      price: Number(tokenData.usd || 0),
+      marketCap: Number(tokenData.usd_market_cap || 0),
+      volume24h: Number(tokenData.usd_24h_vol || 0),
+      holders: 0, // CoinGecko doesn't provide holder count
+      priceChange24h: Number(tokenData.usd_24h_change || 0),
+      liquidity: 0, // Not provided by CoinGecko simple endpoint
       status: 'Live'
     };
 
@@ -56,52 +62,7 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
 
     return marketData;
   } catch (error) {
-    console.error(`[Jupiter] Error fetching market data for ${mint}:`, error);
-    // Fallback to price-only endpoint
-    return await fetchJupiterPrice(mint);
-  }
-}
-
-// Fallback: Jupiter Price API v2 (simpler, always works)
-async function fetchJupiterPrice(mint: string): Promise<any> {
-  try {
-    const url = `${JUPITER_API_URL}/price/v2?ids=${mint}`;
-    const headers: any = {
-      'Accept': 'application/json'
-    };
-    if (JUPITER_API_KEY) {
-      headers['Authorization'] = `Bearer ${JUPITER_API_KEY}`;
-    }
-
-    const response = await fetch(url, { headers });
-    
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json();
-    const priceData = data.data?.[mint];
-    
-    if (!priceData) {
-      return null;
-    }
-
-    const marketData = {
-      price: Number(priceData.price || 0),
-      marketCap: 0, // Price API doesn't provide this
-      volume24h: 0,   // Price API doesn't provide this
-      holders: 0,   // Price API doesn't provide this
-      priceChange24h: 0,
-      liquidity: 0,
-      status: 'Live'
-    };
-
-    // Cache for 2 minutes
-    await redis.setex(`bags:token:${mint}:market`, 120, JSON.stringify(marketData));
-
-    return marketData;
-  } catch (error) {
-    console.error(`[Jupiter Price] Error for ${mint}:`, error);
+    console.error(`[CoinGecko] Error fetching market data for ${mint}:`, error);
     return null;
   }
 }
