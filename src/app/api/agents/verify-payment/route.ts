@@ -75,17 +75,27 @@ export async function POST(request: NextRequest) {
       }, { status: 404 });
     }
 
-    // Get account keys from transaction
-    const accountKeys = tx.transaction.message.getAccountKeys();
-    const keysArray = Array.from(accountKeys);
+    // Get account keys from transaction - handle both old and new Solana web3.js formats
+    const message = tx.transaction.message;
+    let keysArray: string[] = [];
+
+    // Try to get keys from staticAccountKeys (newer format) or accountKeys (older format)
+    if ('staticAccountKeys' in message && Array.isArray(message.staticAccountKeys)) {
+      keysArray = message.staticAccountKeys.map((key: any) => key.toString());
+    } else {
+      // Fallback for older format
+      const accountKeys = message.getAccountKeys();
+      // MessageAccountKeys is iterable, convert properly
+      keysArray = [...(accountKeys as any)].map((key: any) => key.toString());
+    }
 
     // Find sender (first account is usually signer)
     const senderIndex = 0;
-    const sender = keysArray[senderIndex]?.toString();
+    const sender = keysArray[senderIndex];
 
     // Find platform wallet index
     const platformWalletIndex = keysArray.findIndex(
-      (key) => key.toString() === PLATFORM_WALLET
+      (key) => key === PLATFORM_WALLET
     );
 
     if (platformWalletIndex < 0) {

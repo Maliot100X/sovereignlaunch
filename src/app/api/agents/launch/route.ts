@@ -21,10 +21,17 @@ async function verifyLaunchPayment(agentWallet: string, txHash?: string): Promis
         return { verified: false, error: 'Transaction not found' };
       }
 
-      const accountKeys = tx.transaction.message.getAccountKeys();
-      const keysArray = Array.isArray(accountKeys) ? accountKeys : (accountKeys as any).staticAccountKeys || [];
+      // Get account keys - handle both old and new Solana web3.js formats
+      const message = tx.transaction.message;
+      let keysArray: string[] = [];
+      if ('staticAccountKeys' in message && Array.isArray(message.staticAccountKeys)) {
+        keysArray = message.staticAccountKeys.map((key: any) => key.toString());
+      } else {
+        keysArray = [...(message.getAccountKeys() as any)].map((key: any) => key.toString());
+      }
+
       const platformWalletIndex = keysArray.findIndex(
-        (key: any) => key.toString() === PLATFORM_WALLET
+        (key) => key === PLATFORM_WALLET
       );
 
       if (platformWalletIndex >= 0) {
@@ -51,15 +58,22 @@ async function verifyLaunchPayment(agentWallet: string, txHash?: string): Promis
       const txTime = tx.blockTime * 1000;
       if (txTime < fiveMinutesAgo) continue;
 
-      const accountKeys = tx.transaction.message.getAccountKeys();
-      const keysArray = Array.isArray(accountKeys) ? accountKeys : (accountKeys as any).staticAccountKeys || [];
+      // Get account keys - handle both old and new Solana web3.js formats
+      const message = tx.transaction.message;
+      let keysArray: string[] = [];
+      if ('staticAccountKeys' in message && Array.isArray(message.staticAccountKeys)) {
+        keysArray = message.staticAccountKeys.map((key: any) => key.toString());
+      } else {
+        keysArray = [...(message.getAccountKeys() as any)].map((key: any) => key.toString());
+      }
+
       const senderIndex = keysArray.findIndex(
-        (key: any) => key.toString() === agentWallet
+        (key) => key === agentWallet
       );
 
       if (senderIndex >= 0) {
         const platformWalletIndex = keysArray.findIndex(
-          (key: any) => key.toString() === PLATFORM_WALLET
+          (key) => key === PLATFORM_WALLET
         );
 
         if (platformWalletIndex >= 0) {
