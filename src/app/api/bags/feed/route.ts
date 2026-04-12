@@ -7,11 +7,12 @@ const BAGS_API_KEY = process.env.BAGS_API_KEY || '';
 // Cache duration in seconds
 const CACHE_DURATION = 120;
 
-// Jupiter Price API for real-time token prices
-const JUPITER_PRICE_URL = 'https://api.jup.ag/price/v2';
+// Jupiter Swap API for price calculation (Price API gives 403, Swap API works!)
 const JUPITER_API_KEY = process.env.JUPITER_API_KEY || '';
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
-// Fetch token market data from Jupiter Price API v2
+// Fetch token market data from Jupiter Swap API (quote to calculate price)
 async function fetchTokenMarketData(mint: string): Promise<any> {
   try {
     // Check cache first
@@ -46,34 +47,43 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
       // Continue without pool data
     }
 
-    // Fetch price from Jupiter Price API v2
-    const priceUrl = `${JUPITER_PRICE_URL}?ids=${mint}`;
-    const priceResponse = await fetch(priceUrl, {
-      headers: {
-        'x-api-key': JUPITER_API_KEY,
-        'Accept': 'application/json'
-      }
-    });
-
+    // Calculate price from Jupiter Swap quote
+    // Quote token -> USDC to get USD price
     let price = 0;
-    let priceChange24h = 0;
-
-    if (priceResponse.ok) {
-      const priceData = await priceResponse.json();
-      const tokenData = priceData[mint];
+    
+    try {
+      // Use 1000 units of token for quote (adjust for decimals later)
+      const quoteAmount = '1000000'; // 1 token with 6 decimals
       
-      if (tokenData) {
-        price = tokenData.usdPrice || 0;
-        priceChange24h = tokenData.priceChange24h || 0;
+      const quoteUrl = `https://api.jup.ag/swap/v1/quote?inputMint=${mint}&outputMint=${USDC_MINT}&amount=${quoteAmount}&slippageBps=50`;
+      
+      const quoteResponse = await fetch(quoteUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'x-api-key': JUPITER_API_KEY
+        }
+      });
+
+      if (quoteResponse.ok) {
+        const quoteData = await quoteResponse.json();
+        
+        if (quoteData.outAmount) {
+          // Calculate price: outAmount (USDC with 6 decimals) / quoteAmount (token)
+          const usdcOut = Number(quoteData.outAmount) / 1e6;
+          const tokenIn = Number(quoteAmount) / 1e6;
+          price = usdcOut / tokenIn;
+        }
       }
+    } catch (quoteError) {
+      console.error(`[Jupiter Swap] Quote error for ${mint}:`, quoteError);
     }
 
     const marketData = {
       price: price,
-      marketCap: 0, // Need total supply to calculate
-      volume24h: 0, // Not provided by price API
+      marketCap: 0, // Need total supply
+      volume24h: 0, // Not provided
       holders: 0, // Not provided
-      priceChange24h: priceChange24h,
+      priceChange24h: 0, // Not provided by swap API
       liquidity: 0,
       status: poolInfo.migrated ? 'Live' : 'Pre-Grad',
       poolAddress: poolInfo.poolAddress,
@@ -85,7 +95,7 @@ async function fetchTokenMarketData(mint: string): Promise<any> {
     return marketData;
 
   } catch (error) {
-    console.error(`[Jupiter Price] Error for ${mint}:`, error);
+    console.error(`[Jupiter Swap] Error for ${mint}:`, error);
     return null;
   }
 }
